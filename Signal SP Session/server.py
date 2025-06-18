@@ -220,11 +220,14 @@ class TwilioWebSocketHandler:
 
 
     async def process_complete_input(self, text: str):
+
+        SUPPORTED_LANGUAGES = ["pt-BR", "es-US", "en-US"]
+
         try:
             # Detect language switch
             new_lang = detect_language_switch(text, self.language)
             old_lang = self.language
-
+            
             if new_lang != self.language:
                 logger.info(f"{Fore.YELLOW}[LANG] Language switched: {self.language} → {new_lang}{Style.RESET_ALL}\n")
                 self.language = new_lang
@@ -233,8 +236,13 @@ class TwilioWebSocketHandler:
                 if self.websocket:
                     language_message = {
                         "type": "language",
-                        "language": new_lang  # deve bater com 'code' no TwiML
+                        "ttsLanguage": new_lang,  # deve bater com 'code' no TwiML
+                        "transcriptionLanguage": new_lang,  # deve bater com 'code' no TwiML
                     }
+
+                    if new_lang in SUPPORTED_LANGUAGES:
+                        await self.websocket.send_str(json.dumps(language_message))
+                        logger.info(f"{Fore.YELLOW}[LANG] Sent language change to Conversation Relay: {language_message}{Style.RESET_ALL}\n")
                     try:
                         await self.websocket.send_str(json.dumps(language_message))
                         logger.info(f"{Fore.YELLOW}[LANG] Sent language change to Conversation Relay: {language_message}{Style.RESET_ALL}\n")
