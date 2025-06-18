@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Twilio Conversational AI Dashboard</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #00041c;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      padding: 1rem 2rem;
+      background: linear-gradient(to right, #ff3c41, #6c47ff);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.4rem;
+    }
+
+    #eventFeed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 2rem;
+      background-color: #050b2a;
+    }
+
+    .event {
+      margin-bottom: 1rem;
+      padding: 1rem;
+      border-left: 4px solid #ff3c41;
+      background: #111636;
+      border-radius: 4px;
+      box-shadow: 0 0 5px rgba(255, 60, 65, 0.2);
+    }
+
+    .event.prompt { border-left-color: #00d08a; }
+    .event.tts    { border-left-color: #03a9f4; }
+    .event.interrupt { border-left-color: #ff9800; animation: flash 0.8s ease-in-out 2; }
+    .event.error  { border-left-color: #ff3c41; }
+
+    .event-type {
+      font-weight: bold;
+      color: #6c47ff;
+    }
+
+    pre.event-value {
+      white-space: pre-wrap;
+      color: #9ecfff;
+      font-family: monospace;
+      margin-top: 0.5rem;
+    }
+
+    footer {
+      text-align: center;
+      font-size: 0.8rem;
+      padding: 0.5rem;
+      color: #555;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 1rem;
+      padding: 0.5rem 2rem;
+      background-color: #080e35;
+      align-items: center;
+    }
+
+    .toolbar label {
+      font-size: 0.85rem;
+      color: #ccc;
+    }
+
+    .toolbar input {
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: none;
+      font-size: 0.85rem;
+    }
+
+    @keyframes flash {
+      0%, 100% { background-color: #111636; }
+      50% { background-color: #3c0900; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Twilio NASA-Style Debug Dashboard</h1>
+    <span>Live Monitor</span>
+  </header>
+
+  <div class="toolbar">
+    <label><input type="checkbox" id="autoScroll" checked /> Auto-Scroll</label>
+    <label>Filter: <input type="text" id="filterInput" placeholder="type=prompt, interrupt..." /></label>
+  </div>
+
+  <div id="eventFeed"></div>
+
+  <footer>Powered by Twilio | Internal Debug UI</footer>
+
+  <audio id="interruptBeep" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+
+  <script>
+    const feed = document.getElementById('eventFeed');
+    const autoScrollCheckbox = document.getElementById('autoScroll');
+    const filterInput = document.getElementById('filterInput');
+    const beep = document.getElementById('interruptBeep');
+
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/dashboard-ws`);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const type = data.type || 'unknown';
+      const div = document.createElement('div');
+      div.className = `event ${type}`;
+      div.innerHTML = `
+        <div class="event-type">${type}</div>
+        <pre class="event-value">${JSON.stringify(data.data || {}, null, 2)}</pre>
+      `;
+
+      // Filter check
+      const filterText = filterInput.value.toLowerCase();
+      if (!type.toLowerCase().includes(filterText)) {
+        div.style.display = "none";
+      }
+
+      feed.prepend(div);
+
+      // Beep on interrupt
+      if (type === 'interrupt') {
+        beep.volume = 0.4;
+        beep.currentTime = 0;
+        beep.play();
+      }
+
+      if (autoScrollCheckbox.checked) {
+        feed.scrollTop = 0;
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error('WebSocket error', err);
+    };
+
+    // Reapply filter on user input
+    filterInput.addEventListener('input', () => {
+      const filter = filterInput.value.toLowerCase();
+      document.querySelectorAll('.event').forEach(event => {
+        const matches = event.innerText.toLowerCase().includes(filter);
+        event.style.display = matches ? '' : 'none';
+      });
+    });
+  </script>
+</body>
+</html>
