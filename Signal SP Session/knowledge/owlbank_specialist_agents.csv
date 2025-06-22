@@ -1,0 +1,5 @@
+AgentName,Role,Description,KnowledgeFiles,ToolFiles
+Olli,Generalist,"First point of contact for all customer needs. Handles FAQs, simple tasks, and routing.",owlbank_olli_faqs.txt,route-to-specialist
+Sunny,Onboarding Specialist,"Welcomes new leads, explains core services, and assists with first-time setup.",owlbank_onboarding.txt,route-to-generalist
+Max,Wealth Specialist,"Serves high-net-worth individuals with portfolio management and private banking.",owlbank_wealth-management.txt,route-to-generalist
+Io,Investment Specialist,"Helps customers invest smarter with AI-optimized portfolios and crypto access.",owlbank_investment_products.txt,route-to-generalist

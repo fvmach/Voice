@@ -15,28 +15,13 @@ import pathlib
 from datetime import datetime, timezone
 import re
 
-def detect_language_switch(text: str, current_lang: str = "pt-BR") -> str:
-    text = text.lower()
-    language_patterns = {
-        "pt-BR": [
-            r"(speak|talk|switch).*(portuguese|português)",
-            r"(falar|fala).*(português|portuguese)"
-        ],
-        "en-US": [
-            r"(speak|talk|switch).*(english|inglês)",
-            r"(falar|fala).*(inglês|english)"
-        ],
-        "es-US": [
-            r"(speak|talk|switch).*(spanish|espanhol|español)",
-            r"(hablar|habla|falar|fala).*(espanhol|español|spanish)"
-        ]
-    }
-    for lang_code, patterns in language_patterns.items():
-        for pattern in patterns:
-            if re.search(pattern, text):
-                return lang_code
-    return current_lang
+# Partial update: architecture support for agent routing, tool and knowledge injection will be handled in structured classes
+# Goal: Integrate mocked tools, multiple agents, and knowledge routing
 
+import csv
+from pathlib import Path
+
+from tools.personalization import get_personalization_context # Integração com o Twilio Segment para personalização das interações
 
 # Initialize colorama
 colorama_init(autoreset=True)
@@ -48,12 +33,172 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
+class Agent:
+    def __init__(self, name, role, knowledge_paths=None, tools_paths=None, logger=None):
+        self.name = name
+        self.role = role
+        self.knowledge_paths = knowledge_paths or []
+        self.tools_paths = tools_paths or []
+        self.knowledge = ""
+        self.tools = []
+        self.logger = logger or logging.getLogger(__name__)
+
+
+    def load_knowledge(self):
+        contents = []
+        for path in self.knowledge_paths:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    contents.append(f.read())
+            except Exception as e:
+                logger.warning(f"[WARN] Could not load knowledge from {path}: {e}")
+        self.knowledge = "\n".join(contents)
+
+    def load_tools(self):
+        for path in self.tools_paths:
+            if Path(path).exists():
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        if path.endswith('.json'):
+                            tool_data = json.load(f)
+                            self.tools.append(tool_data)
+                        else:
+                            self.tools.append(Path(path).name)
+                except Exception as e:
+                    logger.warning(f"[WARN] Could not load tool file {path}: {e}")
+
+
+class AgentRegistry:
+    def __init__(self):
+        self.agents = {}
+
+    def register(self, agent: Agent):
+        agent.load_knowledge()
+        agent.load_tools()
+        self.agents[agent.name] = agent
+
+    def get_agent(self, name):
+        return self.agents.get(name)
+
+    def list_agents(self):
+        return list(self.agents.keys())
+
+    def get_routing_index(self):
+        return self.agents.get("Olli").tools_paths[0]  # route-to-specialist CSV file
+
+
+# Initialize agents
+registry = AgentRegistry()
+
+registry.register(Agent(
+    name="Olli",
+    role="generalist",
+    knowledge_paths=["./knowledge/owlbank_olli_faqs.txt", "./knowledge/owlbank_specialist_agents.csv"],
+    tools_paths=["./tools/route-to-specialist"],
+    logger=logger
+))
+
+registry.register(Agent(
+    name="Sunny",
+    role="onboarding",
+    knowledge_paths=["./knowledge/owlbank_onboarding.txt"],
+    tools_paths=["./tools/route-to-generalist"],
+    logger=logger
+))
+
+registry.register(Agent(
+    name="Max",
+    role="wealth",
+    knowledge_paths=["./knowledge/high-value-customer.csv", "./knowledge/owlbank_wealth-management.txt"],
+    tools_paths=["./tools/route-to-generalist"],
+    logger=logger
+))
+
+registry.register(Agent(
+    name="Io",
+    role="investments",
+    knowledge_paths=["./knowledge/owlbank_investment_products.txt", "./knowledge/owlbank_investors-and-assets.csv"],
+    logger=logger
+))
+
+def build_agent_context(agent_name: str, customer_profile: dict = None):
+    agent = registry.get_agent(agent_name)
+    if not agent:
+        raise ValueError(f"Agent '{agent_name}' not found in registry")
+
+    # Build personalization section
+    personalization = ""
+    if customer_profile and "traits" in customer_profile:
+        traits = customer_profile["traits"]
+        items = []
+        if "first_name" in traits:
+            items.append(f"- Name: {traits['first_name']}")
+        if "company" in traits:
+            items.append(f"- Company: {traits['company']}")
+        if "email" in traits:
+            items.append(f"- Email: {traits['email']}")
+        if "current_stage" in traits:
+            items.append(f"- Stage: {traits['current_stage']}")
+        if "event" in traits:
+            items.append(f"- Context: {traits['event']}")
+        if "flex_last-interaction-outcome" in traits:
+            items.append(f"- Last Outcome: {traits['flex_last-interaction-outcome']}")
+        if items:
+            personalization = "\n\nCustomer info:\n" + "\n".join(items)
+
+    # Specialist routing logic for Olli
+    extra_instruction = ""
+    if agent.name == "Olli":
+        for tool in agent.tools:
+            if isinstance(tool, dict) and "agents" in tool:
+                routes = tool["agents"]
+                formatted = "\n".join(
+                    f"- If the customer mentions: {', '.join(a['triggers'])}, route to {a['agent']} (role: {a['role']})"
+                    for a in routes
+                )
+                extra_instruction = f"\n\nIf any of the following topics arise, route accordingly:\n{formatted}"
+
+    return (
+        f"You are {agent.name}, a {agent.role} support agent at Owl Bank.\n"
+        f"Use the following knowledge base:\n{agent.knowledge}"
+        f"{personalization}"
+        f"\nYou have access to the following tools and escalation rules: {extra_instruction}\n"
+        f"If needed, append your message with #route_to:<AgentName>."
+    )
+
+
+
+def detect_language_switch(text: str, current_lang: str = "pt-BR") -> str:
+    text = text.lower()
+    language_patterns = {
+        "pt-BR": [
+            r"(speak|talk|switch|change).*(portuguese|português)",
+            r"(falar|fala).*(português|portuguese)"
+        ],
+        "en-US": [
+            r"(speak|talk|switch|change).*(english|inglês)",
+            r"(falar|fala).*(inglês|english)"
+        ],
+        "es-US": [
+            r"(speak|talk|switch|change).*(spanish|espanhol|español)",
+            r"(hablar|habla|falar|fala|cambiar).*(espanhol|español|spanish)"
+        ]
+    }
+    for lang_code, patterns in language_patterns.items():
+        for pattern in patterns:
+            if re.search(pattern, text):
+                return lang_code
+    return current_lang
+
+
 @dataclass
 class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = "gpt-4o"
+    openai_model = "gpt-4o-2024-11-20"  # Fixed model name
+
+import asyncio
 
 class LLMClient:
     def __init__(self, config: ConversationConfig):
@@ -66,26 +211,40 @@ class LLMClient:
     async def close(self):
         pass
 
-    async def get_completion(self, text: str, language: str) -> str:  # <-- added language param
-        try:
-            logger.info(f"{Fore.BLUE}[SYS] Sending prompt: {text}{Style.RESET_ALL}\n")
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.client.chat.completions.create(
-                    model=self.config.openai_model,
-                    messages=[
-                        {"role": "system", "content": f"You are a helpful assistant named Olli speaking in {language}. You are talking with Twilio customers through voice conversations (phone calls). Keep responses concise and conversational and avoid formatting and special characters like emojis."},
-                        {"role": "user", "content": text}
-                    ]
+    async def get_completion(self, text: str, language: str, agent_name: str = "Olli", customer_profile: dict = None):
+        context = build_agent_context(agent_name, customer_profile)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"{context}\n\n"
+                    f"You are talking to a customer through a phone call. "
+                    f"Speak in {language}. "
+                    f"Respond conversationally. Avoid special characters or emojis.\n"
+                    f"If a specialist agent is needed, end your message with #route_to:<AgentName> "
+                    f"(e.g., #route_to:Sunny)."
                 )
+            },
+            {"role": "user", "content": text}
+        ]
+
+        def sync_stream():
+            return self.client.chat.completions.create(
+                model=self.config.openai_model,
+                messages=messages,
+                stream=True
             )
-            result = response.choices[0].message.content.strip()
-            logger.info(f"{Fore.GREEN}[TTS] {result}{Style.RESET_ALL}\n")
-            return result
+
+        try:
+            stream = await asyncio.to_thread(sync_stream)
+            for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
         except Exception as e:
-            logger.error(f"{Fore.RED}[ERR] [OpenAI] API error: {e}{Style.RESET_ALL}\n")
-            return "Desculpe, encontrei um erro ao processar sua solicitação."
+            logger.error(f"{Fore.RED}[ERR] Streaming LLM error: {e}{Style.RESET_ALL}\n")
+            yield "Desculpe, ocorreu um erro."
+
 
 class TwilioWebSocketHandler:
     def __init__(self):
@@ -100,8 +259,7 @@ class TwilioWebSocketHandler:
         }
         self.dashboard_clients = set()
         self.language = 'pt-BR'  # default
-
-
+        self.active_agent = "Olli"
 
     async def broadcast_to_dashboard(self, payload: dict):
         msg = json.dumps(payload)
@@ -110,7 +268,6 @@ class TwilioWebSocketHandler:
                 await ws.send_str(msg)
             except Exception as e:
                 logger.error(f"{Fore.RED}[ERR] Dashboard WS send failed: {e}{Style.RESET_ALL}\n")
-
 
     async def handle_websocket(self, request):
         ws = web.WebSocketResponse()
@@ -170,13 +327,15 @@ class TwilioWebSocketHandler:
         self.conversation_sid = data.get("callSid")
         logger.info(f"{Fore.BLUE}[SYS] Conversation setup - SID: {self.conversation_sid}{Style.RESET_ALL}\n")
         self.language = 'pt-BR'
-        await self.broadcast_to_dashboard({"type": "setup", "ts": datetime.now(timezone.utc)
-.isoformat(), "data": data})
-        
 
+        # Buscar contexto de personalização do cliente no Twilio Segment
+        self.personalization = get_personalization_context(data)
+        logger.info(f"{Fore.CYAN}[CX] Customer context: {json.dumps(self.personalization, indent=2)}{Style.RESET_ALL}\n")
 
+        await self.broadcast_to_dashboard({"type": "setup", "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
     async def handle_prompt(self, data: Dict[str, Any]):
+        logger.info(f"{Fore.YELLOW}[AGENT] Current active agent: {self.active_agent}{Style.RESET_ALL}")
         text = data.get("voicePrompt", "")
         interruptible = data.get("interruptible", True)
         preemptible = data.get("preemptible", True)
@@ -193,95 +352,102 @@ class TwilioWebSocketHandler:
         if text.strip():
             await self.process_complete_input(text)
 
-        await self.broadcast_to_dashboard({"type": 'prompt', "ts": datetime.now(timezone.utc)
-.isoformat(), "data": data})
-
-
+        await self.broadcast_to_dashboard({"type": 'prompt', "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
     async def handle_interrupt(self, data: Dict[str, Any]):
         logger.info(f"{Fore.MAGENTA}[SPI] Interrupt received: {json.dumps(data, indent=2)}{Style.RESET_ALL}\n")
-        await self.broadcast_to_dashboard({"type": "interrupt", "ts": datetime.now(timezone.utc)
-.isoformat(), "data": data})
-
+        await self.broadcast_to_dashboard({"type": "interrupt", "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
     async def handle_dtmf(self, data: Dict[str, Any]):
         digit = data.get("digit")
         logger.info(f"{Fore.MAGENTA}[SPI] DTMF received: {digit}{Style.RESET_ALL}\n")
         if digit:
             await self.process_complete_input(f"User pressed {digit}")
-        await self.broadcast_to_dashboard({"type": "dtmf", "ts": datetime.now(timezone.utc)
-.isoformat(), "data": data})
+        await self.broadcast_to_dashboard({"type": "dtmf", "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
     async def handle_info_debug(self, event_type: str, data: Dict[str, Any]):
         formatted = json.dumps(data, indent=2, ensure_ascii=False)
         logger.info(f"{Fore.MAGENTA}[SPI] {event_type.capitalize()} event:\n{formatted}{Style.RESET_ALL}\n")
-        await self.broadcast_to_dashboard({"type": event_type, "ts": datetime.now(timezone.utc)
-.isoformat(), "data": data})
-
+        await self.broadcast_to_dashboard({"type": event_type, "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
     async def process_complete_input(self, text: str):
-
         SUPPORTED_LANGUAGES = ["pt-BR", "es-US", "en-US"]
 
         try:
             # Detect language switch
             new_lang = detect_language_switch(text, self.language)
             old_lang = self.language
-            
+
             if new_lang != self.language:
                 logger.info(f"{Fore.YELLOW}[LANG] Language switched: {self.language} → {new_lang}{Style.RESET_ALL}\n")
                 self.language = new_lang
 
-                # Envia mensagem do tipo 'language' para Conversation Relay
-                if self.websocket:
+                # Send language switch message to Conversation Relay
+                if self.websocket and new_lang in SUPPORTED_LANGUAGES:
                     language_message = {
                         "type": "language",
-                        "ttsLanguage": new_lang,  # deve bater com 'code' no TwiML
-                        "transcriptionLanguage": new_lang,  # deve bater com 'code' no TwiML
+                        "ttsLanguage": new_lang,
+                        "transcriptionLanguage": new_lang,
                     }
-
-                    if new_lang in SUPPORTED_LANGUAGES:
-                        await self.websocket.send_str(json.dumps(language_message))
-                        logger.info(f"{Fore.YELLOW}[LANG] Sent language change to Conversation Relay: {language_message}{Style.RESET_ALL}\n")
                     try:
                         await self.websocket.send_str(json.dumps(language_message))
                         logger.info(f"{Fore.YELLOW}[LANG] Sent language change to Conversation Relay: {language_message}{Style.RESET_ALL}\n")
                     except Exception as e:
                         logger.error(f"{Fore.RED}[ERR] Failed to send language switch: {e}{Style.RESET_ALL}\n")
 
-                # Broadcast para o dashboard
+                # Broadcast language switch
                 await self.broadcast_to_dashboard({
                     "type": "language-switch",
                     "data": {"from": old_lang, "to": new_lang}
                 })
 
-            # Chamada ao LLM com novo idioma
-            response_text = await self.llm_client.get_completion(text, self.language)
-            await self.send_response(response_text)
+            # Collect tokens from LLM
+            response_buffer = []
+            async for token in self.llm_client.get_completion(text, self.language, self.active_agent, self.personalization):
+                response_buffer.append(token)
+                await self.send_response(token, partial=True)
 
+            full_response = ''.join(response_buffer).strip()
+
+            # Check for #route_to:<Agent>
+            match = re.search(r"#route_to:(\w+)", full_response)
+            if match:
+                requested_agent = match.group(1)
+                if registry.get_agent(requested_agent):
+                    logger.info(f"{Fore.YELLOW}[ROUTE] Routing to agent: {requested_agent}{Style.RESET_ALL}")
+
+                    # Optional: store as active agent
+                    self.active_agent = requested_agent
+
+                    logger.info(f"{Fore.GREEN}[AGENT] Active agent updated: {self.active_agent}{Style.RESET_ALL}")
+                    await self.broadcast_to_dashboard({
+                        "type": "agent-switch",
+                        "data": {"from": "Olli", "to": requested_agent}
+})
+                    return  # Skip sending final response, next prompt will use new agent
+                else:
+                    logger.warning(f"{Fore.YELLOW}[WARN] Unknown agent requested: {requested_agent}{Style.RESET_ALL}")
+
+            # Send final marker
+            await self.send_response("", partial=False)
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] Error processing input: {e}{Style.RESET_ALL}\n")
-            await self.send_response("Desculpe, não consegui processar sua solicitação.")
+            await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
 
-
-    async def send_response(self, text: str):
-        if not self.websocket:
-            logger.error(f"{Fore.RED}[ERR] No WebSocket connection available{Style.RESET_ALL}\n")
+    async def send_response(self, text: str, partial: bool = True):
+        if not self.websocket: 
             return
-
-        message = {
+        msg = {
             "type": "text",
             "token": text,
-            "last": self.latest_prompt_flags.get("last", True),
-            "interruptible": self.latest_prompt_flags.get("interruptible", True),
-            "preemptible": self.latest_prompt_flags.get("preemptible", True)
+            "last": not partial,
+            "interruptible": self.latest_prompt_flags["interruptible"],
+            "preemptible":  self.latest_prompt_flags["preemptible"]
         }
-
         try:
-            await self.websocket.send_str(json.dumps(message))
+            await self.websocket.send_str(json.dumps(msg))
         except Exception as e:
-            logger.error(f"{Fore.RED}[ERR] Error sending TTS response: {e}{Style.RESET_ALL}\n")
-
+            logger.error(f"[ERR] Send TTS failed: {e}")
 
 
 async def handle_event_streams_webhook(request):
@@ -333,7 +499,6 @@ async def main():
     app.router.add_post('/webhook', handle_event_streams_webhook)
     app.router.add_post('/events', handle_event_streams_webhook)
     app.router.add_get('/', lambda request: web.Response(text="Twilio WebSocket/HTTP Server Running"))
-
 
     for route in list(app.router.routes()):
         cors.add(route)

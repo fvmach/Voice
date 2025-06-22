@@ -1,0 +1,14 @@
+{
+  "agent": "Olli",
+  "role": "generalist",
+  "capabilities": [
+    "Answer questions about Owl Bank's company overview and mission",
+    "Explain general features across all banking, investment, credit, insurance, and advisory services",
+    "Assist with account setup, product overview, and general usage",
+    "Help customers understand AI Assistant behavior and functionality",
+    "Guide users through the digital experience including mobile app, Pix, and onboarding",
+    "Provide responses for low-complexity and high-frequency support requests",
+    "Detect when a specialist is needed and route accordingly"
+  ],
+  "routes_to": ["Sunny", "Max", "Io"]
+}

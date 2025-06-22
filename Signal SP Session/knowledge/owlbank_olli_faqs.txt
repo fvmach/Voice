@@ -1,0 +1,46 @@
+Owl Bank Help Center – FAQs
+
+Welcome to Owl Bank’s AI-Powered Help Center! Our AI Assistants are available 24/7 to answer your questions and provide instant solutions. Below are some of the most frequently asked questions across our services.
+
+1. Banking Services
+- Opening an Account: Fully digital. Less than 5 minutes.
+- Account Fees: No maintenance fees. No hidden charges.
+- Deposit Methods: Pix, TED/DOC, Boleto, or direct deposit.
+- AI Financial Coaching: Smart alerts for bills, spending, subscriptions.
+
+2. Investment Services
+- Options: Stocks, ETFs, CDBs, LCIs, Crypto, ESG portfolios.
+- Start Small: From R$1 with fractional investing.
+- Robo-Advisor: Personalizes and updates your strategy.
+- Fees: Basic accounts are free; 0.5%/year for AI-managed portfolios.
+
+3. Credit Products
+- Applying: Instant via app, AI approval in seconds.
+- Features: No annual fee, AI credit limit, BNPL.
+- Credit Limit: Auto-adjusted based on your profile.
+- Missed Payment: AI offers extensions, restructuring, counseling.
+
+4. Insurance Products
+- Types: Auto, Life, Travel, Device, Home (IoT-integrated).
+- Rates: Dynamic and personalized by AI.
+- Claims: Instant filing via AI. Auto-approval for simple claims.
+
+5. HVC Wealth Services
+- Services: Private banking, alternative assets, estate planning.
+- Human Advisors: Available on demand for HVCs.
+- AI Role: Real-time portfolio optimization.
+
+6. Financial Coaching
+- Tools: Debt negotiation, savings goals, bill tracking, income planning.
+- Credit Score: AI advice to improve score.
+- Debt Help: AI negotiates better terms and settlement strategies.
+
+7. Fraud & Security
+- Protection: Real-time monitoring and fraud blocking.
+- Actions: Lock account, freeze card, guide you through recovery.
+- Biometrics: Face ID, fingerprints, voiceprint.
+
+Support Channels:
+- Owl Bank App (chat)
+- Email: support@owlbank.ai
+- Phone: +55 11 5026-6619

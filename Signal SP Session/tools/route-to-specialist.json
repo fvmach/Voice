@@ -1,0 +1,37 @@
+{
+  "agents": [
+    {
+      "agent": "Sunny",
+      "role": "onboarding",
+      "triggers": [
+        "New account setup problems",
+        "Document upload and KYC verification issues",
+        "Activation of Owl Digital Checking or Credit Card",
+        "Questions about signup bonuses or welcome points",
+        "Help understanding Owl's services as a new customer"
+      ]
+    },
+    {
+      "agent": "Max",
+      "role": "wealth",
+      "triggers": [
+        "High-net-worth customer inquiries",
+        "Requests for private banking or concierge services",
+        "Wealth preservation and estate planning",
+        "Alternative investments like private equity",
+        "Advanced retirement and tax optimization strategies"
+      ]
+    },
+    {
+      "agent": "Io",
+      "role": "investments",
+      "triggers": [
+        "Crypto investment details or risk analysis",
+        "Owl Growth Fund, Smart Savings, ESG Select",
+        "AI Robo-Advisor specifics or customization",
+        "Questions on portfolio diversification or performance",
+        "Market volatility concerns or capital protection"
+      ]
+    }
+  ]
+}
