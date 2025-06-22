@@ -14,12 +14,13 @@ import jinja2
 import pathlib
 from datetime import datetime, timezone
 import re
-
-# Partial update: architecture support for agent routing, tool and knowledge injection will be handled in structured classes
-# Goal: Integrate mocked tools, multiple agents, and knowledge routing
-
+from twilio.rest import Client
+import decimal
+from collections import defaultdict
+import pandas as pd
 import csv
 from pathlib import Path
+import math
 
 from tools.personalization import get_personalization_context # Integração com o Twilio Segment para personalização das interações
 
@@ -29,9 +30,177 @@ colorama_init(autoreset=True)
 # Load environment variables from .env file
 load_dotenv()
 
+# Initialize Twilio client
+twilio_client = Client()
+
+# In-memory storage for intelligence events
+intel_log = [] 
+
+DATA_PATH = Path("data")
+DATA_PATH.mkdir(exist_ok=True)
+NDJSON_FILE = DATA_PATH / "intel_results.ndjson"
+if not NDJSON_FILE.exists():
+    NDJSON_FILE.touch()
+
+RAW_NDJSON_FILE = DATA_PATH / "intel_raw_results.ndjson"
+RAW_NDJSON_FILE.touch(exist_ok=True)
+
+
+def extract_score(text, key):
+    match = re.search(rf"{key} Score:\s*(\d+)", text)
+    return int(match.group(1)) if match else None
+
+def persist_result(payload: dict):
+    flat_result = flatten_intel_result(payload)
+    intel_log.append(flat_result)
+
+    save_to_ndjson(flat_result, target=NDJSON_FILE)  # flat
+    save_to_ndjson(payload, target=RAW_NDJSON_FILE)  # raw
+
+    logger.info(f"[PERSIST] Saved flat + raw intelligence for {payload['data']['transcript']['sid']}")
+
+
+
+
+def flatten_intel_result(payload: dict) -> dict:
+    out = {
+        "ts": payload.get("ts"),
+        "transcript_sid": payload["data"]["transcript"]["sid"],
+        "language": payload["data"]["transcript"].get("language"),
+        "duration": payload["data"]["transcript"].get("duration"),
+        "status": payload["data"]["transcript"].get("status"),
+    }
+
+    for op in payload["data"].get("operators", []):
+        name = op.get("name", "").lower()
+        if "csat" in name:
+            score = extract_score(op.get("text_result", "") or "", "CSAT")
+            if score is not None:
+                out["csat_score"] = score
+        if "ces" in name:
+            score = extract_score(op.get("text_result", "") or "", "CES")
+            if score is not None:
+                out["ces_score"] = score
+        if "hallucination" in name:
+            out["hallucination_occurrences"] = 1
+        if "legal" in name:
+            out["legal_risk_score"] = int(op.get("predicted_probability", 0) * 100)
+        if "sentiment" in name and "label_probabilities" in op:
+            probs = op["label_probabilities"]
+            out["positive_sentiment_score"] = int(probs.get("positive", 0) * 100)
+            out["neutral_sentiment_score"] = int(probs.get("neutral", 0) * 100)
+            out["negative_sentiment_score"] = int(probs.get("negative", 0) * 100)
+
+    return out
+
+def save_to_ndjson(result: dict, target: Path):
+    with open(target, "a", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, default=safe_json)
+        f.write("\n")
+
+def load_aggregated_intel_results(group_by: str = "day") -> dict:
+    if not NDJSON_FILE.exists():
+        return {}
+
+    try:
+        df = pd.read_json(NDJSON_FILE, lines=True)
+    except Exception as e:
+        logger.warning(f"[WARN] Failed to read CSV for aggregation: {e}")
+        return {}
+
+    # Robust datetime parsing
+    df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
+    df = df.dropna(subset=["ts"])
+
+    if df.empty:
+        return {}
+
+    if group_by == "week":
+        df["group"] = df["ts"].dt.strftime("%Y-W%U")
+    elif group_by == "month":
+        df["group"] = df["ts"].dt.strftime("%Y-%m")
+    elif group_by == "year":
+        df["group"] = df["ts"].dt.year.astype(str)
+    else:
+        df["group"] = df["ts"].dt.strftime("%Y-%m-%d")
+
+    results = {}
+    grouped = df.groupby("group")
+
+    for label, group in grouped:
+        def safe_avg(col):
+            if col in group.columns:
+                values = group[col].dropna().astype(float)
+                return round(values.mean(), 2) if not values.empty else None
+            return None
+
+
+        def safe_sum(col):
+            return int(group[col].fillna(0).astype(float).sum()) if col in group.columns else 0
+
+        sentiment_cols = [
+            "positive_sentiment_score",
+            "neutral_sentiment_score",
+            "negative_sentiment_score"
+        ]
+
+        # Count number of rows where each sentiment score exceeds 50%
+        def count_sentiment(col):
+            return int((group[col].dropna().astype(float) > 50).sum()) if col in group.columns else 0
+
+        results[label] = {
+            "avgCSAT": safe_avg("csat_score"),
+            "avgCES": safe_avg("ces_score"),
+            "count": len(group),
+            "hallucination_count": int(group["hallucination_occurrences"].fillna(0).sum()) if "hallucination_occurrences" in group else 0,
+            "legal_risk_score": int(group["legal_risk_score"].fillna(0).sum()) if "legal_risk_score" in group else 0,
+            "positive_sentiment": count_sentiment("positive_sentiment_score"),
+            "neutral_sentiment": count_sentiment("neutral_sentiment_score"),
+            "negative_sentiment": count_sentiment("negative_sentiment_score"),
+        }
+
+
+    return results
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
+
+
+def load_recent_events(limit=100):
+    if not NDJSON_FILE.exists():
+        return []
+    try:
+        df = pd.read_json(NDJSON_FILE, on_bad_lines="skip")
+        df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
+        df = df.dropna(subset=["ts"])
+        df = df.fillna(value="")  # or .fillna(0) for numeric fields
+
+        records = df.tail(limit).to_dict(orient='records')
+
+        # Ensure all values are JSON-safe
+        def sanitize(record):
+            return {
+                k: (None if pd.isna(v) or v == "" else v)
+                for k, v in record.items()
+            }
+
+        return [sanitize(r) for r in records]
+    except Exception as e:
+        logger.warning(f"[WARN] Failed to load recent events: {e}")
+        return []
+    if not NDJSON_FILE.exists():
+        return []
+    df = pd.read_json(NDJSON_FILE, lines=True)
+    return df.tail(limit).to_dict(orient='records')
+
+if NDJSON_FILE.exists():
+    try:
+        df = pd.read_json(NDJSON_FILE, lines=True)
+        for _, row in df.iterrows():
+            intel_log.append(row.to_dict())
+    except Exception as e:
+        logger.warning(f"[WARN] Failed to preload past results: {e}")
 
 class Agent:
     def __init__(self, name, role, knowledge_paths=None, tools_paths=None, logger=None):
@@ -66,7 +235,6 @@ class Agent:
                             self.tools.append(Path(path).name)
                 except Exception as e:
                     logger.warning(f"[WARN] Could not load tool file {path}: {e}")
-
 
 class AgentRegistry:
     def __init__(self):
@@ -245,6 +413,34 @@ class LLMClient:
             logger.error(f"{Fore.RED}[ERR] Streaming LLM error: {e}{Style.RESET_ALL}\n")
             yield "Desculpe, ocorreu um erro."
 
+    async def get_completion_from_history(self, history: list, language: str, agent_name: str = "Olli", customer_profile: dict = None):
+        context = build_agent_context(agent_name, customer_profile)
+        messages = [
+            {"role": "system", "content": (
+                f"{context}\n\n"
+                f"You are talking to a customer through a phone call. "
+                f"Speak in {language}. Respond conversationally. Avoid special characters or emojis.\n"
+                f"If a specialist agent is needed, end your message with #route_to:<AgentName> "
+                f"(e.g., #route_to:Sunny)."
+            )}
+        ] + history
+
+        def sync_stream():
+            return self.client.chat.completions.create(
+                model=self.config.openai_model,
+                messages=messages,
+                stream=True
+            )
+
+        try:
+            stream = await asyncio.to_thread(sync_stream)
+            for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+        except Exception as e:
+            logger.error(f"{Fore.RED}[ERR] Streaming LLM error: {e}{Style.RESET_ALL}\n")
+            yield "Desculpe, ocorreu um erro."
 
 class TwilioWebSocketHandler:
     def __init__(self):
@@ -260,6 +456,8 @@ class TwilioWebSocketHandler:
         self.dashboard_clients = set()
         self.language = 'pt-BR'  # default
         self.active_agent = "Olli"
+        self.chat_history = []  # Stores full chat context
+
 
     async def broadcast_to_dashboard(self, payload: dict):
         msg = json.dumps(payload)
@@ -401,11 +599,23 @@ class TwilioWebSocketHandler:
                     "data": {"from": old_lang, "to": new_lang}
                 })
 
-            # Collect tokens from LLM
+            # Append user message to chat history
+            self.chat_history.append({"role": "user", "content": text})
+
+            # Get streaming response from LLM using full history
             response_buffer = []
-            async for token in self.llm_client.get_completion(text, self.language, self.active_agent, self.personalization):
+            async for token in self.llm_client.get_completion_from_history(
+                history=self.chat_history,
+                language=self.language,
+                agent_name=self.active_agent,
+                customer_profile=self.personalization
+            ):
                 response_buffer.append(token)
                 await self.send_response(token, partial=True)
+
+            # Append assistant response to history
+            self.chat_history.append({"role": "assistant", "content": ''.join(response_buffer).strip()})
+
 
             full_response = ''.join(response_buffer).strip()
 
@@ -449,15 +659,95 @@ class TwilioWebSocketHandler:
         except Exception as e:
             logger.error(f"[ERR] Send TTS failed: {e}")
 
+def safe_json(obj):
+    if isinstance(obj, decimal.Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-async def handle_event_streams_webhook(request):
+
+def sanitize_json(obj):
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    elif isinstance(obj, dict):
+        return {k: sanitize_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_json(i) for i in obj]
+    return obj
+
+
+async def handle_intelligence_result(transcript_sid: str, ws_handler: TwilioWebSocketHandler):
+    try:
+        transcript = twilio_client.intelligence.v2.transcripts(transcript_sid).fetch()
+        operator_results = twilio_client.intelligence.v2.transcripts(transcript_sid).operator_results.list()
+
+        payload = {
+            "type": "intelligence",
+            "ts": transcript.date_created.isoformat(),
+            "data": {
+                "transcript": {
+                    "sid": transcript.sid,
+                    "status": transcript.status,
+                    "language": transcript.language_code,
+                    "duration": transcript.duration,
+                    "url": transcript.url,
+                    "links": transcript.links
+                },
+                "operators": []
+            }
+        }
+
+        for op in operator_results:
+            result_data = {
+                "name": op.name,
+                "type": op.operator_type,
+                "url": op.url,
+                "transcript_sid": op.transcript_sid,
+            }
+
+            # Parse results by operator type
+            if op.operator_type == "text-generation" and op.text_generation_results:
+                result_data["text_result"] = op.text_generation_results.get("result")
+
+            elif op.operator_type == "conversation-classify":
+                result_data["predicted_label"] = op.predicted_label
+                result_data["predicted_probability"] = op.predicted_probability
+                result_data["label_probabilities"] = op.label_probabilities
+
+            elif op.operator_type == "extract":
+                result_data["extract_results"] = op.extract_results
+                result_data["match_probability"] = op.match_probability
+                result_data["extract_match"] = op.extract_match
+                result_data["utterance_results"] = op.utterance_results
+
+            # Add other types as needed here...
+
+            payload["data"]["operators"].append(result_data)
+
+        await ws_handler.broadcast_to_dashboard(json.loads(json.dumps(payload, default=safe_json)))
+        persist_result(payload)
+
+        logger.info(f"{Fore.GREEN}[INTEL] Broadcasted intelligence for {transcript_sid}{Style.RESET_ALL}")
+    except Exception as e:
+        logger.error(f"{Fore.RED}[ERR] Failed to handle intelligence for {transcript_sid}: {e}{Style.RESET_ALL}")
+
+async def handle_event_streams_webhook(request, ws_handler: TwilioWebSocketHandler):
     try:
         body = await request.text()
-        logger.info(f"{Fore.MAGENTA}[SPI] Event Streams webhook received: {body}{Style.RESET_ALL}\n")
+        logger.info(f"{Fore.MAGENTA}[SPI] Event Streams webhook received: {body}{Style.RESET_ALL}")
+
+        data = json.loads(body)
+        transcript_sid = data.get("transcript_sid") or data.get("TranscriptSid")
+
+        if transcript_sid:
+            await handle_intelligence_result(transcript_sid, ws_handler)
+        else:
+            logger.warning(f"{Fore.YELLOW}[WARN] No transcript_sid found in webhook payload{Style.RESET_ALL}")
+
         return web.Response(text="OK", status=200)
     except Exception as e:
-        logger.error(f"{Fore.RED}[ERR] Error handling Event Streams webhook: {e}{Style.RESET_ALL}\n")
+        logger.error(f"{Fore.RED}[ERR] Error handling Event Streams webhook: {e}{Style.RESET_ALL}")
         return web.Response(text="Error", status=500)
+
 
 @aiohttp_jinja2.template('dashboard.html')
 async def handle_dashboard(request):
@@ -475,6 +765,51 @@ async def handle_dashboard_ws(request, ws_handler):
     finally:
         ws_handler.dashboard_clients.discard(ws)
     return ws
+
+from datetime import datetime, timedelta
+
+async def preload_transcripts_for_service(service_sid: str, ws_handler: TwilioWebSocketHandler):
+    try:
+        # Load already-processed transcript SIDs
+        existing_sids = set()
+        if NDJSON_FILE.exists():
+            try:
+                df = pd.read_json(NDJSON_FILE, lines=True)
+                if "transcript_sid" in df.columns:
+                    existing_sids = set(df["transcript_sid"].dropna().astype(str))
+            except Exception as e:
+                logger.warning(f"[WARN] Failed to read existing results: {e}")
+
+        # Look back sufficiently far if needed
+        start_time = datetime.now(timezone.utc) - timedelta(days=30)
+        cursor = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        logger.info(f"{Fore.BLUE}[INIT] Fetching transcripts created after {cursor}{Style.RESET_ALL}")
+
+        transcripts = twilio_client.intelligence.v2.transcripts.list(
+            limit=100,
+            after_date_created=cursor,
+            after_start_time=cursor
+        )
+
+        fetched = 0
+        for t in transcripts:
+            if t.service_sid != service_sid:
+                continue
+
+            if t.sid in existing_sids:
+                logger.info(f"[SKIP] Already processed: {t.sid}")
+                continue
+
+            logger.info(f"[PRELOAD] Processing: {t.sid}")
+            await handle_intelligence_result(t.sid, ws_handler)
+            fetched += 1
+
+        logger.info(f"{Fore.BLUE}[INIT] Finished loading {fetched} transcripts for service {service_sid}{Style.RESET_ALL}")
+
+    except Exception as e:
+        logger.error(f"{Fore.RED}[ERR] Failed to preload transcripts: {e}{Style.RESET_ALL}")
+
 
 async def main():
     ws_handler = TwilioWebSocketHandler()
@@ -496,9 +831,15 @@ async def main():
         )
     })
     app.router.add_get('/websocket', ws_handler.handle_websocket)
-    app.router.add_post('/webhook', handle_event_streams_webhook)
-    app.router.add_post('/events', handle_event_streams_webhook)
+    app.router.add_post('/webhook', lambda request: handle_event_streams_webhook(request, ws_handler))
+    app.router.add_post('/events', lambda request: handle_event_streams_webhook(request, ws_handler))
     app.router.add_get('/', lambda request: web.Response(text="Twilio WebSocket/HTTP Server Running"))
+    app.router.add_get('/intel-aggregates', lambda req: web.json_response(
+        sanitize_json(load_aggregated_intel_results(req.rel_url.query.get("group", "day")))
+    ))
+    app.router.add_get('/intel-events', lambda req: web.json_response(load_recent_events()))
+
+
 
     for route in list(app.router.routes()):
         cors.add(route)
@@ -507,6 +848,7 @@ async def main():
     logger.info(f"{Fore.BLUE}[SYS] Starting Twilio WebSocket/HTTP server on {host}:{port}{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] WebSocket endpoint: ws://{host}:{port}/websocket{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] HTTP webhook endpoint: http://{host}:{port}/webhook{Style.RESET_ALL}\n")
+    await preload_transcripts_for_service("GAde9c513fd3914897cac25df18f3203b7", ws_handler)
     await web._run_app(app, host=host, port=port)
 
 if __name__ == "__main__":
