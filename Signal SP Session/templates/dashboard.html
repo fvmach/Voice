@@ -43,10 +43,45 @@
 
     .left-panel,
     .right-panel {
-      flex: 1;
       display: flex;
       flex-direction: column;
       height: 100%;
+      min-width: 300px; /* Minimum panel width */
+    }
+
+    .left-panel {
+      width: 50%; /* Default to 50% */
+    }
+
+    .right-panel {
+      flex: 1; /* Take remaining space */
+    }
+
+    .splitter {
+      width: 6px;
+      background: linear-gradient(to bottom, #ff3c41, #6c47ff);
+      cursor: col-resize;
+      position: relative;
+      border-left: 1px solid #00041c;
+      border-right: 1px solid #00041c;
+      transition: background 0.2s ease;
+    }
+
+    .splitter:hover {
+      background: linear-gradient(to bottom, #ff5c61, #8c67ff);
+      box-shadow: 0 0 10px rgba(255, 60, 65, 0.4);
+    }
+
+    .splitter::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 4px;
+      height: 40px;
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 2px;
     }
 
     .left-panel {
@@ -198,6 +233,9 @@
       <div id="eventFeed"></div>
     </div>
 
+    <!-- Resizable Splitter -->
+    <div class="splitter" id="splitter"></div>
+
     <div class="right-panel">
       <!-- Right Panel Header -->
       <div class="panel-header">
@@ -249,6 +287,52 @@
   </div>
 
   <script>
+    // Resizable Splitter Functionality
+    const splitter = document.getElementById('splitter');
+    const leftPanel = document.querySelector('.left-panel');
+    const rightPanel = document.querySelector('.right-panel');
+    const container = document.querySelector('.container');
+    
+    let isResizing = false;
+    
+    splitter.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none'; // Prevent text selection during resize
+      
+      // Prevent default to avoid any unwanted behavior
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      const newLeftWidth = e.clientX - containerRect.left;
+      const containerWidth = containerRect.width;
+      
+      // Calculate percentage, but enforce minimum widths
+      const minWidth = 300; // 300px minimum
+      const maxLeftWidth = containerWidth - minWidth - 6; // Account for splitter width
+      
+      if (newLeftWidth >= minWidth && newLeftWidth <= maxLeftWidth) {
+        const leftPercentage = (newLeftWidth / containerWidth) * 100;
+        leftPanel.style.width = `${leftPercentage}%`;
+      }
+    });
+    
+    document.addEventListener('mouseup', () => {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+    
+    // Double-click to reset to 50/50 split
+    splitter.addEventListener('dblclick', () => {
+      leftPanel.style.width = '50%';
+    });
+
+    // Main Dashboard JavaScript
     const ws = new WebSocket(`ws://${location.host}/dashboard-ws`);
     const feed = document.getElementById("eventFeed");
     const filterInput = document.getElementById("filterInput");

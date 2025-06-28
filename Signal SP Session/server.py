@@ -45,6 +45,11 @@ if not NDJSON_FILE.exists():
 RAW_NDJSON_FILE = DATA_PATH / "intel_raw_results.ndjson"
 RAW_NDJSON_FILE.touch(exist_ok=True)
 
+DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
+
+def log_debug(message):
+    if DEBUG_MODE:
+        logger.debug(message)
 
 def extract_score(text, key):
     match = re.search(rf"{key} Score:\s*(\d+)", text)
@@ -57,7 +62,7 @@ def persist_result(payload: dict):
     save_to_ndjson(flat_result, target=NDJSON_FILE)  # flat
     save_to_ndjson(payload, target=RAW_NDJSON_FILE)  # raw
 
-    logger.info(f"[PERSIST] Saved flat + raw intelligence for {payload['data']['transcript']['sid']}")
+    log_debug(f"[PERSIST] Saved flat + raw intelligence for {payload['data']['transcript']['sid']}")
 
 
 
@@ -105,7 +110,7 @@ def load_aggregated_intel_results(group_by: str = "day") -> dict:
     try:
         df = pd.read_json(NDJSON_FILE, lines=True)
     except Exception as e:
-        logger.warning(f"[WARN] Failed to read CSV for aggregation: {e}")
+        log_debug(f"[WARN] Failed to read CSV for aggregation: {e}")
         return {}
 
     # Robust datetime parsing
@@ -165,6 +170,11 @@ def load_aggregated_intel_results(group_by: str = "day") -> dict:
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
+# Silence noisy loggers if not in debug mode
+if not DEBUG_MODE:
+    logging.getLogger("twilio").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def load_recent_events(limit=100):
@@ -187,7 +197,7 @@ def load_recent_events(limit=100):
 
         return [sanitize(r) for r in records]
     except Exception as e:
-        logger.warning(f"[WARN] Failed to load recent events: {e}")
+        log_debug(f"[WARN] Failed to load recent events: {e}")
         return []
     if not NDJSON_FILE.exists():
         return []
@@ -200,7 +210,7 @@ if NDJSON_FILE.exists():
         for _, row in df.iterrows():
             intel_log.append(row.to_dict())
     except Exception as e:
-        logger.warning(f"[WARN] Failed to preload past results: {e}")
+        log_debug(f"[WARN] Failed to preload past results: {e}")
 
 class Agent:
     def __init__(self, name, role, knowledge_paths=None, tools_paths=None, logger=None):
@@ -220,7 +230,7 @@ class Agent:
                 with open(path, 'r', encoding='utf-8') as f:
                     contents.append(f.read())
             except Exception as e:
-                logger.warning(f"[WARN] Could not load knowledge from {path}: {e}")
+                log_debug(f"[WARN] Could not load knowledge from {path}: {e}")
         self.knowledge = "\n".join(contents)
 
     def load_tools(self):
@@ -234,7 +244,7 @@ class Agent:
                         else:
                             self.tools.append(Path(path).name)
                 except Exception as e:
-                    logger.warning(f"[WARN] Could not load tool file {path}: {e}")
+                    log_debug(f"[WARN] Could not load tool file {path}: {e}")
 
 class AgentRegistry:
     def __init__(self):
@@ -387,9 +397,10 @@ class LLMClient:
                 "content": (
                     f"{context}\n\n"
                     f"You are talking to a customer through a phone call. "
-                    f"Speak in {language}. "
-                    f"Respond conversationally. Avoid special characters or emojis.\n"
+                    f"Speak in {language}. But respect user's request if they ask to switch language.\n"
+                    f"Respond conversationally. Avoid special characters or emojis. Optimize responses for speech to text.\n"
                     f"If a specialist agent is needed, end your message with #route_to:<AgentName> "
+                    f"If a specialist agent is named or requested (Sunny, Max, Io or Olli), end your message with #route_to:<AgentName> "
                     f"(e.g., #route_to:Sunny)."
                 )
             },
@@ -419,7 +430,8 @@ class LLMClient:
             {"role": "system", "content": (
                 f"{context}\n\n"
                 f"You are talking to a customer through a phone call. "
-                f"Speak in {language}. Respond conversationally. Avoid special characters or emojis.\n"
+                f"Speak in {language}, but you can switch languages if needed to English and Latin American Spanish."
+                f"Respond conversationally. Avoid special characters or emojis. Optimize responses for speech to text.\n"
                 f"If a specialist agent is needed, end your message with #route_to:<AgentName> "
                 f"(e.g., #route_to:Sunny)."
             )}
@@ -455,7 +467,7 @@ class TwilioWebSocketHandler:
         }
         self.dashboard_clients = set()
         self.language = 'pt-BR'  # default
-        self.active_agent = "Olli"
+        self.active_agent = "Olli"  # Default agent, will be updated in setup based on channel
         self.chat_history = []  # Stores full chat context
 
 
@@ -525,6 +537,26 @@ class TwilioWebSocketHandler:
         self.conversation_sid = data.get("callSid")
         logger.info(f"{Fore.BLUE}[SYS] Conversation setup - SID: {self.conversation_sid}{Style.RESET_ALL}\n")
         self.language = 'pt-BR'
+
+        # Check if this is a WhatsApp call and route accordingly
+        from_number = data.get("from", "")
+        if from_number.startswith("whatsapp:"):
+            self.active_agent = "Max"
+            logger.info(f"{Fore.GREEN}[ROUTE] WhatsApp call detected from {from_number} - routing to Max (wealth management){Style.RESET_ALL}\n")
+            await self.broadcast_to_dashboard({
+                "type": "auto-route",
+                "data": {
+                    "channel": "whatsapp",
+                    "from": from_number,
+                    "routed_to": "Max",
+                    "reason": "WhatsApp channel routing"
+                }
+            })
+        else:
+            self.active_agent = "Olli"
+            logger.info(f"{Fore.CYAN}[ROUTE] PSTN/SIP call detected from {from_number} - routing to Olli (generalist){Style.RESET_ALL}\n")
+
+        logger.info(f"{Fore.YELLOW}[AGENT] Active agent set to: {self.active_agent}{Style.RESET_ALL}\n")
 
         # Buscar contexto de personalização do cliente no Twilio Segment
         self.personalization = get_personalization_context(data)
@@ -741,11 +773,11 @@ async def handle_event_streams_webhook(request, ws_handler: TwilioWebSocketHandl
         if transcript_sid:
             await handle_intelligence_result(transcript_sid, ws_handler)
         else:
-            logger.warning(f"{Fore.YELLOW}[WARN] No transcript_sid found in webhook payload{Style.RESET_ALL}")
+            log_debug(f"{Fore.YELLOW}[WARN] No transcript_sid found in webhook payload{Style.RESET_ALL}")
 
         return web.Response(text="OK", status=200)
     except Exception as e:
-        logger.error(f"{Fore.RED}[ERR] Error handling Event Streams webhook: {e}{Style.RESET_ALL}")
+        log_debug(f"{Fore.RED}[ERR] Error handling Event Streams webhook: {e}{Style.RESET_ALL}")
         return web.Response(text="Error", status=500)
 
 
@@ -761,7 +793,7 @@ async def handle_dashboard_ws(request, ws_handler):
     try:
         async for msg in ws:
             if msg.type == WSMsgType.ERROR:
-                logger.warning(f"[WARN] Dashboard WS closed with exception {ws.exception()}")
+                log_debug(f"[WARN] Dashboard WS closed with exception {ws.exception()}")
     finally:
         ws_handler.dashboard_clients.discard(ws)
     return ws
@@ -778,13 +810,13 @@ async def preload_transcripts_for_service(service_sid: str, ws_handler: TwilioWe
                 if "transcript_sid" in df.columns:
                     existing_sids = set(df["transcript_sid"].dropna().astype(str))
             except Exception as e:
-                logger.warning(f"[WARN] Failed to read existing results: {e}")
+                log_debug(f"[WARN] Failed to read existing results: {e}")
 
         # Look back sufficiently far if needed
         start_time = datetime.now(timezone.utc) - timedelta(days=30)
         cursor = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        logger.info(f"{Fore.BLUE}[INIT] Fetching transcripts created after {cursor}{Style.RESET_ALL}")
+        log_debug(f"{Fore.BLUE}[INIT] Fetching transcripts created after {cursor}{Style.RESET_ALL}")
 
         transcripts = twilio_client.intelligence.v2.transcripts.list(
             limit=100,
@@ -798,17 +830,17 @@ async def preload_transcripts_for_service(service_sid: str, ws_handler: TwilioWe
                 continue
 
             if t.sid in existing_sids:
-                logger.info(f"[SKIP] Already processed: {t.sid}")
+                log_debug(f"[SKIP] Already processed: {t.sid}")
                 continue
 
-            logger.info(f"[PRELOAD] Processing: {t.sid}")
+            log_debug(f"[PRELOAD] Processing: {t.sid}")
             await handle_intelligence_result(t.sid, ws_handler)
             fetched += 1
 
         logger.info(f"{Fore.BLUE}[INIT] Finished loading {fetched} transcripts for service {service_sid}{Style.RESET_ALL}")
 
     except Exception as e:
-        logger.error(f"{Fore.RED}[ERR] Failed to preload transcripts: {e}{Style.RESET_ALL}")
+        log_debug(f"{Fore.RED}[ERR] Failed to preload transcripts: {e}{Style.RESET_ALL}")
 
 
 async def main():
@@ -849,7 +881,15 @@ async def main():
     logger.info(f"{Fore.BLUE}[SYS] WebSocket endpoint: ws://{host}:{port}/websocket{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] HTTP webhook endpoint: http://{host}:{port}/webhook{Style.RESET_ALL}\n")
     await preload_transcripts_for_service("GAde9c513fd3914897cac25df18f3203b7", ws_handler)
-    await web._run_app(app, host=host, port=port)
+    runner = web.AppRunner(app, access_log=None if not DEBUG_MODE else logger)
+    await runner.setup()
+    site = web.TCPSite(runner, host=host, port=port)
+    await site.start()
+
+    # Optional: keep the same printed messages
+    logger.info(f"{Fore.BLUE}[SYS] Server running at http://{host}:{port}{Style.RESET_ALL}")
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
     try:

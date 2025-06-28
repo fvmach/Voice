@@ -1,46 +1,52 @@
-Owl Bank Help Center – FAQs
+Welcome to the Owl Bank Help Center. I’m Olli, your AI assistant. I’m available anytime to answer your questions and help you with banking, investments, credit, and more.
 
-Welcome to Owl Bank’s AI-Powered Help Center! Our AI Assistants are available 24/7 to answer your questions and provide instant solutions. Below are some of the most frequently asked questions across our services.
+Let’s go through some of the most common questions I get.
 
-1. Banking Services
-- Opening an Account: Fully digital. Less than 5 minutes.
-- Account Fees: No maintenance fees. No hidden charges.
-- Deposit Methods: Pix, TED/DOC, Boleto, or direct deposit.
-- AI Financial Coaching: Smart alerts for bills, spending, subscriptions.
+First, banking services.
 
-2. Investment Services
-- Options: Stocks, ETFs, CDBs, LCIs, Crypto, ESG portfolios.
-- Start Small: From R$1 with fractional investing.
-- Robo-Advisor: Personalizes and updates your strategy.
-- Fees: Basic accounts are free; 0.5%/year for AI-managed portfolios.
+If you want to open an account, the process is fully digital and takes less than five minutes.  
+We don’t charge any monthly maintenance fees, and there are no hidden costs.  
+You can deposit money through Pix, bank transfers, boletos, or direct deposits.  
+And I’ll keep an eye on your spending, bills, and subscriptions to help you stay in control.
 
-3. Credit Products
-- Applying: Instant via app, AI approval in seconds.
-- Features: No annual fee, AI credit limit, BNPL.
-- Credit Limit: Auto-adjusted based on your profile.
-- Missed Payment: AI offers extensions, restructuring, counseling.
+Now let’s talk about investments.
 
-4. Insurance Products
-- Types: Auto, Life, Travel, Device, Home (IoT-integrated).
-- Rates: Dynamic and personalized by AI.
-- Claims: Instant filing via AI. Auto-approval for simple claims.
+You can invest in stocks, exchange-traded funds, CDBs, LCIs, crypto, and ESG-focused portfolios.  
+You can start small — even with just one real — thanks to fractional investing.  
+Our robo-advisor can build and adjust a personalized strategy for you automatically.  
+There’s no fee for basic investment accounts, and our AI-managed portfolios cost zero point five percent per year.
 
-5. HVC Wealth Services
-- Services: Private banking, alternative assets, estate planning.
-- Human Advisors: Available on demand for HVCs.
-- AI Role: Real-time portfolio optimization.
+Next up, credit products.
 
-6. Financial Coaching
-- Tools: Debt negotiation, savings goals, bill tracking, income planning.
-- Credit Score: AI advice to improve score.
-- Debt Help: AI negotiates better terms and settlement strategies.
+You can apply for credit instantly through the Owl Bank app.  
+Approval happens in seconds, powered by AI.  
+There’s no annual fee, and your credit limit adjusts based on your behavior.  
+If you ever miss a payment, our system can offer extensions, restructuring plans, and personalized guidance.
 
-7. Fraud & Security
-- Protection: Real-time monitoring and fraud blocking.
-- Actions: Lock account, freeze card, guide you through recovery.
-- Biometrics: Face ID, fingerprints, voiceprint.
+Let’s move on to insurance.
 
-Support Channels:
-- Owl Bank App (chat)
-- Email: support@owlbank.ai
-- Phone: +55 11 5026-6619
+We offer insurance for your car, life, travel, devices, and your home — all with smart integration for connected devices.  
+Rates are personalized in real time using AI.  
+If something happens, you can file a claim instantly, and simple cases are approved automatically.
+
+For high-value clients, we offer private wealth services.
+
+This includes access to private banking, alternative investments, and estate planning.  
+Human advisors are always available on demand.  
+Meanwhile, our AI continuously optimizes your portfolio based on real-time market data.
+
+We also offer financial coaching tools.
+
+You can set savings goals, plan your income, track your bills, and negotiate debt.  
+Our AI can help you improve your credit score.  
+And if you’re in debt, I can help you negotiate better terms and settlement strategies.
+
+Finally, security and fraud protection.
+
+We monitor your account in real time and block suspicious activity immediately.  
+If needed, I can help you lock your account, freeze your card, and recover access.  
+Your account is protected with biometric security like face ID, fingerprints, or voice recognition.
+
+You can always reach Owl Bank through the app chat, by email at support at owlbank dot AI, or by phone at plus fifty five, eleven, fifty twenty-six, sixty-six nineteen.
+
+Whenever you’re ready, just tell me what you’d like help with.
