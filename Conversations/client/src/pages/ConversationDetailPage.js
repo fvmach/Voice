@@ -18,7 +18,7 @@ import { Label } from '@twilio-paste/core/label';
 import { Select, Option } from '@twilio-paste/core/select';
 import { FormControl } from '@twilio-paste/core/form';
 import { HelpText } from '@twilio-paste/core/help-text';
-import { Textarea } from '@twilio-paste/core/textarea';
+import { TextArea } from '@twilio-paste/core/textarea';
 import { ArrowBackIcon } from '@twilio-paste/icons/esm/ArrowBackIcon';
 import { ProductConversationsIcon } from '@twilio-paste/icons/esm/ProductConversationsIcon';
 import { UserIcon } from '@twilio-paste/icons/esm/UserIcon';
@@ -749,7 +749,7 @@ const ConversationDetailPage = () => {
           <Box>
             <FormControl>
               <Label htmlFor="edit-attributes">Attributes (JSON)</Label>
-              <Textarea
+              <TextArea
                 id="edit-attributes"
                 value={conversationForm.attributes}
                 onChange={(e) => setConversationForm(prev => ({ ...prev, attributes: e.target.value }))}
@@ -859,7 +859,7 @@ const ConversationDetailPage = () => {
           <Box>
             <FormControl>
               <Label htmlFor="message-body">Message</Label>
-              <Textarea
+              <TextArea
                 id="message-body"
                 placeholder="Type your message here..."
                 value={messageForm.body}
