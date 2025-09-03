@@ -5,18 +5,18 @@
   "proxy": "http://localhost:3001",
   "homepage": ".",
   "dependencies": {
-    "@twilio-paste/core": "^20.8.0",
-    "@twilio-paste/icons": "^12.8.0",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.1",
-    "react-scripts": "5.0.1",
+    "@twilio-paste/core": "^20.8.0",
+    "@twilio-paste/icons": "^12.9.0",
     "axios": "^1.6.2",
     "date-fns": "^2.30.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-hook-form": "^7.48.2",
-    "react-query": "^3.39.3"
+    "react-query": "^3.39.3",
+    "react-router-dom": "^6.8.1",
+    "react-scripts": "5.0.1"
   },
   "scripts": {
     "start": "react-scripts start",

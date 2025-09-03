@@ -18,7 +18,7 @@ import { Badge } from '@twilio-paste/core/badge';
 import { PlusIcon } from '@twilio-paste/icons/esm/PlusIcon';
 import { DeleteIcon } from '@twilio-paste/icons/esm/DeleteIcon';
 import { EditIcon } from '@twilio-paste/icons/esm/EditIcon';
-import { ServiceIcon } from '@twilio-paste/icons/esm/ServiceIcon';
+import { ProductSettingsIcon } from '@twilio-paste/icons/esm/ProductSettingsIcon';
 import { format } from 'date-fns';
 import { servicesApi } from '../services/api';
 
@@ -149,7 +149,7 @@ const ServicesPage = () => {
                 <Td colSpan="5">
                   <Flex vAlignContent="center" hAlignContent="center" height="200px">
                     <Box textAlign="center">
-                      <ServiceIcon decorative size="sizeIcon70" color="colorTextWeak" />
+                      <ProductSettingsIcon decorative size="sizeIcon70" color="colorTextWeak" />
                       <Text display="block" marginTop="space40" color="colorTextWeak">
                         No services found. Create your first service to get started.
                       </Text>
@@ -162,7 +162,7 @@ const ServicesPage = () => {
                 <Tr key={service.sid}>
                   <Td>
                     <Flex vAlignContent="center">
-                      <ServiceIcon decorative size="sizeIcon30" color="colorTextBrandHighlight" />
+                      <ProductSettingsIcon decorative size="sizeIcon30" color="colorTextBrandHighlight" />
                       <Text marginLeft="space30" fontWeight="fontWeightSemibold">
                         {service.friendlyName}
                       </Text>

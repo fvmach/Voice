@@ -13,11 +13,11 @@ import { Topbar } from '@twilio-paste/core/topbar';
 import { Alert } from '@twilio-paste/core/alert';
 import { Spinner } from '@twilio-paste/core/spinner';
 import { ProductConversationsIcon } from '@twilio-paste/icons/esm/ProductConversationsIcon';
-import { ServiceIcon } from '@twilio-paste/icons/esm/ServiceIcon';
+import { ProductSettingsIcon } from '@twilio-paste/icons/esm/ProductSettingsIcon';
 import { UserIcon } from '@twilio-paste/icons/esm/UserIcon';
 import { ChatIcon } from '@twilio-paste/icons/esm/ChatIcon';
 import { AttachIcon } from '@twilio-paste/icons/esm/AttachIcon';
-import { WebhookIcon } from '@twilio-paste/icons/esm/WebhookIcon';
+import { LinkIcon } from '@twilio-paste/icons/esm/LinkIcon';
 import { useQuery } from 'react-query';
 import { healthApi } from '../services/api';
 
@@ -39,7 +39,7 @@ const Layout = ({ children }) => {
   const navigationItems = [
     {
       href: '/services',
-      icon: ServiceIcon,
+      icon: ProductSettingsIcon,
       label: 'Services',
       selected: location.pathname === '/services',
     },
@@ -116,7 +116,7 @@ const Layout = ({ children }) => {
         </Sidebar>
 
         {/* Main Content */}
-        <Box flex={1} padding="space60" minHeight="calc(100vh - 60px)">
+        <Box flex={1} padding="space60" minHeight="calc(100vh - 60px)" marginLeft="280px">
           {healthError && (
             <Alert variant="error" marginBottom="space40">
               <Text as="span">

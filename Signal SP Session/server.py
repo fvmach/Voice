@@ -880,7 +880,14 @@ async def main():
     logger.info(f"{Fore.BLUE}[SYS] Starting Twilio WebSocket/HTTP server on {host}:{port}{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] WebSocket endpoint: ws://{host}:{port}/websocket{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] HTTP webhook endpoint: http://{host}:{port}/webhook{Style.RESET_ALL}\n")
-    await preload_transcripts_for_service("GAde9c513fd3914897cac25df18f3203b7", ws_handler)
+    
+    # Get the intelligence service SID from environment variables
+    intelligence_service_sid = os.getenv("TWILIO_INTELLIGENCE_SERVICE_SID")
+    if intelligence_service_sid:
+        await preload_transcripts_for_service(intelligence_service_sid, ws_handler)
+    else:
+        logger.warning(f"{Fore.YELLOW}[WARN] TWILIO_INTELLIGENCE_SERVICE_SID not found in environment variables{Style.RESET_ALL}")
+    
     runner = web.AppRunner(app, access_log=None if not DEBUG_MODE else logger)
     await runner.setup()
     site = web.TCPSite(runner, host=host, port=port)

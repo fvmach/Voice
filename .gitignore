@@ -55,6 +55,7 @@ pids
 *.swp
 *.swo
 *~
+WARP.md
 
 # OS
 .DS_Store
@@ -74,3 +75,4 @@ build/
 # Twilio specific
 .twilio-cli
 twilio-temp/
+

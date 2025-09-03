@@ -43,11 +43,23 @@ export const servicesApi = {
 
 // Conversations API
 export const conversationsApi = {
-  list: (params = {}) => api.get('/conversations', { params }),
-  get: (conversationSid, params = {}) => api.get(`/conversations/${conversationSid}`, { params }),
+  list: (serviceSid, params = {}) => {
+    const queryParams = serviceSid ? { serviceSid, ...params } : params;
+    return api.get('/conversations', { params: queryParams });
+  },
+  get: (conversationSid, serviceSid, params = {}) => {
+    const queryParams = serviceSid ? { serviceSid, ...params } : params;
+    return api.get(`/conversations/${conversationSid}`, { params: queryParams });
+  },
   create: (data) => api.post('/conversations', data),
-  update: (conversationSid, data) => api.patch(`/conversations/${conversationSid}`, data),
-  delete: (conversationSid, params = {}) => api.delete(`/conversations/${conversationSid}`, { params }),
+  update: (conversationSid, data, serviceSid) => {
+    const queryParams = serviceSid ? { serviceSid } : {};
+    return api.patch(`/conversations/${conversationSid}`, data, { params: queryParams });
+  },
+  delete: (conversationSid, serviceSid, params = {}) => {
+    const queryParams = serviceSid ? { serviceSid, ...params } : params;
+    return api.delete(`/conversations/${conversationSid}`, { params: queryParams });
+  },
 };
 
 // Participants API

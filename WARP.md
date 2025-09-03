@@ -6,6 +6,16 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ### Running Servers
 
+**Conversations Manager (API Management):**
+```bash
+cd Conversations
+npm run dev
+```
+- Full-stack web application for managing Twilio Conversations API
+- Express.js backend with React frontend using Twilio Paste design system
+- Provides CRUD operations for services, conversations, participants, messages, media, and webhooks
+- Frontend: http://localhost:3000, Backend API: http://localhost:3001
+
 **Main Voice Assistant Server (Conversation Relay):**
 ```bash
 python server-backup.py
@@ -36,6 +46,13 @@ python server.py
 
 **Install dependencies for each component:**
 ```bash
+# Conversations Manager (API Management)
+cd Conversations
+npm install
+cd client
+npm install
+cd ../..
+
 # Main server
 pip install -r requirements.txt  # If available, or install manually
 
@@ -77,13 +94,16 @@ curl -X POST http://localhost:4000/data/clear
 
 **Start development environment:**
 ```bash
-# Terminal 1: Main conversation relay server
+# Terminal 1: Conversations Manager (API Management)
+cd Conversations && npm run dev
+
+# Terminal 2: Main conversation relay server
 python server-backup.py
 
-# Terminal 2: Analytics server (if needed)
+# Terminal 3: Analytics server (if needed)
 cd "Signal SP Session" && python server.py
 
-# Terminal 3: Webhook server (if testing intelligence features)
+# Terminal 4: Webhook server (if testing intelligence features)
 cd "Conversational Intelligence" && python server.py
 ```
 

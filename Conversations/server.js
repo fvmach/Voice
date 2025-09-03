@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const serviceRoutes = require('./routes/services');
 const conversationRoutes = require('./routes/conversations');
@@ -14,7 +14,7 @@ const mediaRoutes = require('./routes/media');
 const webhookRoutes = require('./routes/webhooks');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Rate limiting
 const limiter = rateLimit({
@@ -39,7 +39,9 @@ app.use(helmet({
 app.use(limiter);
 app.use(morgan('combined'));
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.NODE_ENV === 'production' 
+    ? (process.env.CLIENT_URL || false)
+    : ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));

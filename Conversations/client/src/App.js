@@ -41,7 +41,12 @@ function App() {
       <Theme.Provider theme="default">
         <QueryClientProvider client={queryClient}>
           <Box minHeight="100vh" backgroundColor="colorBackgroundBody">
-            <Router>
+            <Router 
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true
+              }}
+            >
               <Layout>
                 <Routes>
                   <Route path="/" element={<Navigate to="/services" replace />} />
