@@ -75,4 +75,19 @@ build/
 # Twilio specific
 .twilio-cli
 twilio-temp/
+.twiliodeployinfo
+*/.twiliodeployinfo
+
+# Jupyter notebook outputs (to prevent accidental secret exposure)
+*.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary files
+clean_notebook_filter.py
+clean_notebook.py
 
