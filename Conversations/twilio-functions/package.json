@@ -1,0 +1,25 @@
+{
+  "name": "conversations-intelligence-functions",
+  "version": "1.0.0",
+  "description": "Twilio Functions for Conversations Intelligence Export",
+  "main": "functions/export-conversation.js",
+  "scripts": {
+    "deploy": "twilio serverless:deploy",
+    "start": "twilio serverless:start"
+  },
+  "keywords": [
+    "twilio",
+    "functions",
+    "conversations",
+    "intelligence"
+  ],
+  "author": "Fernando Vieira Machado",
+  "license": "MIT",
+  "dependencies": {
+    "twilio": "^4.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

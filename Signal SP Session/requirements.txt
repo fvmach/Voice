@@ -9,3 +9,4 @@ python-dotenv>=1.0.0
 twilio>=8.0.0
 pandas>=2.0.0
 pathlib2>=2.3.0
+pyngrok>=6.0.0

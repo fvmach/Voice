@@ -1,0 +1,14 @@
+{
+  "commands": {},
+  "environments": {
+    "production": {
+      "suffix": ""
+    },
+    "dev": {
+      "suffix": "-dev"
+    }
+  },
+  "functionsFolderName": "functions",
+  "assetsFolderName": "assets",
+  "runtime": "node18"
+}

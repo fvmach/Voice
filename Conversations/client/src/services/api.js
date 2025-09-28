@@ -60,6 +60,23 @@ export const conversationsApi = {
     const queryParams = serviceSid ? { serviceSid, ...params } : params;
     return api.delete(`/conversations/${conversationSid}`, { params: queryParams });
   },
+  // Export conversation for intelligence processing
+  export: (conversationSid, serviceSid, language = 'pt-BR') => {
+    const queryParams = { language };
+    if (serviceSid) queryParams.serviceSid = serviceSid;
+    return api.post(`/conversations/${conversationSid}/export`, {}, { params: queryParams });
+  },
+  // Get intelligence data for conversation
+  getIntelligence: (conversationSid, serviceSid, language = 'pt-BR') => {
+    const queryParams = { language };
+    if (serviceSid) queryParams.serviceSid = serviceSid;
+    return api.get(`/conversations/${conversationSid}/intelligence`, { params: queryParams });
+  },
+  // Get live transcription data for voice conversations
+  getTranscription: (conversationSid, serviceSid) => {
+    const queryParams = serviceSid ? { serviceSid } : {};
+    return api.get(`/conversations/${conversationSid}/transcription`, { params: queryParams });
+  },
 };
 
 // Participants API
@@ -104,6 +121,39 @@ export const webhooksApi = {
   create: (conversationSid, data) => api.post(`/webhooks/${conversationSid}`, data),
   update: (conversationSid, webhookSid, data) => api.patch(`/webhooks/${conversationSid}/${webhookSid}`, data),
   delete: (conversationSid, webhookSid, params = {}) => api.delete(`/webhooks/${conversationSid}/${webhookSid}`, { params }),
+};
+
+// Signal SP Session API (Voice Analytics Server)
+export const signalSpApi = {
+  // Get intelligence data for a specific conversation
+  getConversationIntelligence: (conversationSid) => {
+    // Connect to Signal SP Session server via ngrok
+    const signalApi = axios.create({
+      baseURL: 'https://owlbank.ngrok.io', // Signal SP Session server
+      timeout: 10000,
+    });
+    return signalApi.get(`/conversation/${conversationSid}/intelligence`);
+  },
+  // Get aggregated analytics data (for general dashboard)
+  getAnalytics: (groupBy = 'day') => {
+    const signalApi = axios.create({
+      baseURL: 'https://owlbank.ngrok.io',
+      timeout: 10000,
+    });
+    return signalApi.get(`/intel-aggregates?group=${groupBy}`);
+  },
+  // Get recent intelligence events/results (for general dashboard)
+  getIntelResults: () => {
+    const signalApi = axios.create({
+      baseURL: 'https://owlbank.ngrok.io',
+      timeout: 10000,
+    });
+    return signalApi.get('/intel-events');
+  },
+  // WebSocket connection for live dashboard updates
+  getDashboardWebSocketUrl: () => 'wss://owlbank.ngrok.io/dashboard-ws',
+  // WebSocket connection for live transcription (conversation relay)
+  getTranscriptionWebSocketUrl: () => 'wss://owlbank.ngrok.io/websocket'
 };
 
 // Health check

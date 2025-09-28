@@ -21,6 +21,7 @@ import { PlusIcon } from '@twilio-paste/icons/esm/PlusIcon';
 import { DeleteIcon } from '@twilio-paste/icons/esm/DeleteIcon';
 import { EditIcon } from '@twilio-paste/icons/esm/EditIcon';
 import { ProductConversationsIcon } from '@twilio-paste/icons/esm/ProductConversationsIcon';
+import { DataLineChartIcon } from '@twilio-paste/icons/esm/DataLineChartIcon';
 import { format } from 'date-fns';
 import { conversationsApi, servicesApi } from '../services/api';
 
@@ -37,6 +38,7 @@ const ConversationsPage = () => {
     attributes: '{}'
   });
   const [error, setError] = useState(null);
+  const [exportingConversations, setExportingConversations] = useState(new Set());
 
   // Fetch services for the dropdown
   const { data: servicesData } = useQuery(
@@ -88,6 +90,34 @@ const ConversationsPage = () => {
       },
     }
   );
+  
+  // Export conversation mutation
+  const exportConversationMutation = useMutation(
+    ({ conversationSid, language }) => conversationsApi.export(conversationSid, selectedService === 'default' ? undefined : selectedService, language),
+    {
+      onMutate: ({ conversationSid }) => {
+        setExportingConversations(prev => new Set(prev).add(conversationSid));
+      },
+      onSettled: (data, error, variables) => {
+        const { conversationSid } = variables;
+        setExportingConversations(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(conversationSid);
+          return newSet;
+        });
+      },
+      onSuccess: (response, variables) => {
+        const { conversationSid } = variables;
+        setError(null);
+        // Show success notification (you could use a toast library here)
+        console.log(`Conversation ${conversationSid} exported successfully:`, response.data);
+      },
+      onError: (error, variables) => {
+        const { conversationSid } = variables;
+        setError(`Failed to export conversation ${conversationSid}: ${error.response?.data?.message || error.message}`);
+      },
+    }
+  );
 
   const handleCreateConversation = () => {
     if (!newConversation.friendlyName.trim() && !newConversation.uniqueName.trim()) {
@@ -125,6 +155,14 @@ const ConversationsPage = () => {
 
   const viewConversation = (conversation) => {
     navigate(`/conversations/${conversation.sid}`);
+  };
+  
+  const exportConversation = (conversation) => {
+    // Default to Portuguese for now, but you could add language selection
+    exportConversationMutation.mutate({ 
+      conversationSid: conversation.sid, 
+      language: 'pt-BR' 
+    });
   };
 
   const services = servicesData?.data?.services || [];
@@ -270,6 +308,16 @@ const ConversationsPage = () => {
                       </Button>
                       <Button 
                         variant="secondary" 
+                        size="small"
+                        onClick={() => exportConversation(conversation)}
+                        loading={exportingConversations.has(conversation.sid)}
+                        disabled={exportingConversations.has(conversation.sid)}
+                      >
+                        <DataLineChartIcon decorative />
+                        Export
+                      </Button>
+                      <Button 
+                        variant="destructive_secondary" 
                         size="small"
                         onClick={() => openDeleteModal(conversation)}
                       >

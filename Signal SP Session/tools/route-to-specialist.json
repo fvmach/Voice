@@ -32,11 +32,16 @@
       "agent": "Io",
       "role": "investments",
       "triggers": [
+        "Investment options and opportunities",
+        "Low-risk investment strategies",
+        "Portfolio diversification and performance",
         "Crypto investment details or risk analysis",
         "Owl Growth Fund, Smart Savings, ESG Select",
         "AI Robo-Advisor specifics or customization",
-        "Questions on portfolio diversification or performance",
-        "Market volatility concerns or capital protection"
+        "Questions about returns and investment products",
+        "Market volatility concerns or capital protection",
+        "Investment advice and recommendations",
+        "Where to invest money for good returns"
       ]
     }
   ]

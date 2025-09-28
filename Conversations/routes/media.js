@@ -27,8 +27,8 @@ const upload = multer({
   }
 });
 
-// Helper function to get the appropriate media resource
-const getMediaResource = (conversationSid, serviceSid) => {
+// Helper function to get the appropriate message resource
+const getMessageResource = (conversationSid, serviceSid) => {
   if (serviceSid && serviceSid !== 'default') {
     return client.conversations.v1.services(serviceSid).conversations(conversationSid).messages;
   }
@@ -41,7 +41,7 @@ router.get('/:conversationSid/:messageSid/:mediaSid', async (req, res) => {
     const { conversationSid, messageSid, mediaSid } = req.params;
     const { serviceSid } = req.query;
     
-    const messagesResource = getMediaResource(conversationSid, serviceSid);
+    const messagesResource = getMessageResource(conversationSid, serviceSid);
     const media = await messagesResource(messageSid).media(mediaSid).fetch();
     
     res.json({
@@ -78,7 +78,7 @@ router.get('/:conversationSid/:messageSid', async (req, res) => {
     const { conversationSid, messageSid } = req.params;
     const { serviceSid } = req.query;
     
-    const messagesResource = getMediaResource(conversationSid, serviceSid);
+    const messagesResource = getMessageResource(conversationSid, serviceSid);
     const mediaList = await messagesResource(messageSid).media.list();
     
     const response = {
@@ -166,7 +166,7 @@ router.delete('/:conversationSid/:messageSid/:mediaSid', async (req, res) => {
     const { conversationSid, messageSid, mediaSid } = req.params;
     const { serviceSid } = req.query;
     
-    const messagesResource = getMediaResource(conversationSid, serviceSid);
+    const messagesResource = getMessageResource(conversationSid, serviceSid);
     await messagesResource(messageSid).media(mediaSid).remove();
     
     res.status(204).send();
