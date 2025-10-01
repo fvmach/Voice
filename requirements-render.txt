@@ -2,7 +2,7 @@
 # Core server dependencies only
 
 # Core async web framework
-aiohttp==3.9.5
+aiohttp==3.12.14
 aiohttp-cors==0.7.0
 aiohttp-jinja2==1.6.0
 
@@ -19,7 +19,7 @@ twilio==9.0.4
 flask==3.0.2
 
 # Templating and output
-jinja2==3.1.3
+jinja2==3.1.6
 colorama==0.4.6
 
 # Async runtime
