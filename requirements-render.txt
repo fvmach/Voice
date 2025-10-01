@@ -18,6 +18,9 @@ twilio==9.0.4
 # Web framework for webhooks
 flask==3.0.2
 
+# Ngrok integration (optional for development)
+pyngrok==7.0.0
+
 # Templating and output
 jinja2==3.1.3
 colorama==0.4.6

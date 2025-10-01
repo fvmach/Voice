@@ -31,13 +31,11 @@ services:
       curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
       apt-get install -y nodejs
       echo "🟢 Node.js $(node --version) installed"
+      echo "🟢 NPM $(npm --version) installed"
       
-      # Build Conversations frontend
-      cd Conversations
-      npm install --production
-      npm run render-postbuild
-      cd ..
-      echo "⚛️ React frontend built"
+      # Use robust build script for Node.js
+      chmod +x build_nodejs.sh
+      ./build_nodejs.sh
       
       # Prepare startup script
       chmod +x start_complete_server.py

@@ -29,11 +29,15 @@ services:
       curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
       apt-get install -y nodejs
       echo "Node.js version: $(node --version)"
+      echo "NPM version: $(npm --version)"
       
       # Install Conversations API dependencies
       cd Conversations
-      npm install --production
+      echo "Installing Node.js dependencies..."
+      npm install --production --no-optional
+      echo "Building React frontend..."
       npm run render-postbuild
+      echo "Node.js build completed"
       cd ..
       
       # Make startup script executable
