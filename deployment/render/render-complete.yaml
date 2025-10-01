@@ -1,0 +1,73 @@
+services:
+  # Complete Unified Cross-Channel AI Agents Service
+  # Runs ALL servers: Python conversation relay, Node.js API, analytics, and webhooks
+  - type: web
+    name: cross-channel-ai-complete
+    runtime: python3
+    buildCommand: |
+      # Install Python dependencies
+      pip install -r requirements.txt
+      python -c "from config.environment import get_env_manager; print('Environment setup complete')"
+      
+      # Install additional Python dependencies for sub-services
+      pip install flask python-dotenv colorama twilio aiohttp-cors aiohttp aiohttp-jinja2 openai twilio colorama jinja2 pandas requests
+      
+      # Install Node.js and dependencies for Conversations API
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt-get install -y nodejs
+      
+      cd Conversations
+      npm install
+      npm run render-postbuild
+      cd ..
+      
+      # Make startup script executable
+      chmod +x start_complete_server.py
+    startCommand: python start_complete_server.py
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: RENDER_SERVICE_NAME
+        fromService:
+          type: web
+          name: cross-channel-ai-complete
+          property: name
+      - key: CLIENT_URL
+        fromService:
+          type: web
+          name: cross-channel-ai-complete
+          property: url
+      # Twilio Configuration
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_INTELLIGENCE_SERVICE_SID
+        sync: false
+      # OpenAI Configuration
+      - key: OPENAI_API_KEY
+        sync: false
+      # Segment Configuration
+      - key: SEGMENT_SPACE_ID
+        sync: false
+      - key: SEGMENT_ACCESS_SECRET
+        sync: false
+      # Debug Configuration
+      - key: DEBUG_MODE
+        value: false
+    healthCheckPath: /health
+
+databases:
+  - name: conversations-db
+    plan: starter
+    databaseName: conversations
+    user: conversations_user
+
+  - name: analytics-redis
+    plan: starter
+    type: redis

@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+SignalSP2025-Voice.code-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files (will be provided at runtime)
+.env
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+signal-sp-notebok.ipynb
+
+# PDF and HTML exports (generated files)
+*.pdf
+*.html
+*.slides.html
+
+# Documentation
+*.md
+WARP.md
+README.md
+IMPROVEMENTS_SUMMARY.md
+PWA_INTEGRATION.md
+SIMPLE_BANKING_INTEGRATION.md
+TRANSCRIPTION_STREAMING.md
+V2_IMPLEMENTATION_SUMMARY.md
+
+# Build outputs
+dist/
+build/
+
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+
+# Large data files (optional - uncomment if you want to exclude)
+# data/*.ndjson
+# data/*.json
+# data/*.csv
+
+# Backup files
+*-backup.py
+server_v1_backup.py

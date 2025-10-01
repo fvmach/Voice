@@ -23,6 +23,9 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
+.env.development
+*.env
 
 # Logs
 logs
@@ -90,4 +93,47 @@ __pycache__/
 # Temporary files
 clean_notebook_filter.py
 clean_notebook.py
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Data and temporary files
+data/
+temp/
+tmp/
+*.tmp
+*.bak
+*.ndjson
+intel_results.json
+raw_results.json
+
+# Deployment and cloud artifacts
+.serverless/
+.terraform/
+terraform.tfstate*
+.terraform.lock.hcl
+*.zip
+*.tar.gz
+.render/
+.aws/
+.gcp/
+service-account-key.json
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Testing
+.pytest_cache/
+.tox/
+
+# pyenv
+.python-version
 

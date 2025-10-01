@@ -1,0 +1,137 @@
+services:
+  # Main Conversation Relay Server (WebSocket + AI)
+  - type: web
+    name: conversation-relay
+    runtime: python3
+    buildCommand: |
+      pip install -r requirements.txt
+      python -c "from config.environment import get_env_manager; print('Environment setup complete')"
+    startCommand: python server-backup.py
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: RENDER_SERVICE_NAME
+        fromService:
+          type: web
+          name: conversation-relay
+          property: name
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_INTELLIGENCE_SERVICE_SID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SEGMENT_SPACE_ID
+        sync: false
+      - key: SEGMENT_ACCESS_SECRET
+        sync: false
+      - key: DEBUG_MODE
+        value: false
+    healthCheckPath: /health
+
+  # Conversations Manager (API + React Frontend)
+  - type: web
+    name: conversations-manager
+    runtime: node
+    buildCommand: |
+      cd Conversations
+      npm install
+      npm run render-postbuild
+    startCommand: |
+      cd Conversations
+      npm start
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: RENDER_SERVICE_NAME
+        fromService:
+          type: web
+          name: conversations-manager
+          property: name
+      - key: CLIENT_URL
+        fromService:
+          type: web
+          name: conversations-manager
+          property: url
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+    healthCheckPath: /api/health
+    staticPublishPath: ./Conversations/client/build
+
+  # Signal Analytics Server
+  - type: web
+    name: signal-analytics
+    runtime: python3
+    buildCommand: |
+      cd "Signal SP Session"
+      pip install -r requirements.txt
+    startCommand: |
+      cd "Signal SP Session"
+      python server.py
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: RENDER_SERVICE_NAME
+        fromService:
+          type: web
+          name: signal-analytics
+          property: name
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+    healthCheckPath: /health
+
+  # Intelligence Webhook Server
+  - type: web
+    name: intelligence-webhook
+    runtime: python3
+    buildCommand: |
+      cd "Conversational Intelligence"
+      pip install flask python-dotenv colorama twilio
+    startCommand: |
+      cd "Conversational Intelligence"
+      python server.py
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: RENDER_SERVICE_NAME
+        fromService:
+          type: web
+          name: intelligence-webhook
+          property: name
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+    healthCheckPath: /health
+
+databases:
+  - name: conversations-db
+    plan: starter
+    databaseName: conversations
+    user: conversations_user
+
+  - name: analytics-redis
+    plan: starter
+    type: redis

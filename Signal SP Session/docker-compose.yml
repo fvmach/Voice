@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  signal-analytics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: signal-analytics-server
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+      # Add your API keys here
+      # - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      # - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - NGROK_AUTH_TOKEN=${NGROK_AUTH_TOKEN}
+    env_file:
+      - ../.env  # Use the parent directory's .env file
+    volumes:
+      # Mount data directory for persistence
+      - ./data:/app/data
+      # Mount templates for customization
+      - ./templates:/app/templates
+      # Mount knowledge base
+      - ./knowledge:/app/knowledge
+      # Mount agents configuration
+      - ./agents:/app/agents
+      # Mount tools
+      - ./tools:/app/tools
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  default:
+    name: signal-analytics-network
