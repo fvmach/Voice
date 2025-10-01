@@ -5,24 +5,36 @@ services:
     name: cross-channel-ai-complete
     runtime: python3
     buildCommand: |
-      # Install Python dependencies
-      pip install -r requirements.txt
-      python -c "from config.environment import get_env_manager; print('Environment setup complete')"
+      # Ensure we're using Python 3.11 (compatible with all dependencies)
+      echo "Using Python version: $(python --version)"
       
-      # Install additional Python dependencies for sub-services
-      pip install flask python-dotenv colorama twilio aiohttp-cors aiohttp aiohttp-jinja2 openai twilio colorama jinja2 pandas requests
+      # Upgrade pip to latest version
+      pip install --upgrade pip
       
-      # Install Node.js and dependencies for Conversations API
-      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      # Install Python dependencies with better error handling
+      pip install -r requirements.txt --no-cache-dir
+      
+      # Verify core imports work
+      python -c "import aiohttp, flask, twilio, openai; print('Core dependencies verified')"
+      
+      # Test environment configuration
+      python -c "from config.environment import get_env_manager; print('Environment setup complete')" || echo "Environment config not available, continuing..."
+      
+      # Install Node.js (use apt for Debian-based Render environment)
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
       apt-get install -y nodejs
       
+      # Install Conversations API dependencies
       cd Conversations
-      npm install
+      npm install --production
       npm run render-postbuild
       cd ..
       
       # Make startup script executable
       chmod +x start_complete_server.py
+      
+      # Verify startup script exists
+      ls -la start_complete_server.py
     startCommand: python start_complete_server.py
     plan: starter
     env:

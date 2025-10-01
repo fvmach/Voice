@@ -145,7 +145,10 @@ def check_server_requirements():
     
     required_files = [
         'server-backup.py',
-        'Conversations/server.js',
+        'Conversations/server.js'
+    ]
+    
+    optional_files = [
         'Conversational Intelligence/server.py',
         'Signal SP Session/server.py'
     ]
@@ -156,8 +159,20 @@ def check_server_requirements():
             missing_files.append(file_path)
     
     if missing_files:
-        print(f"⚠️ Warning: Missing server files: {missing_files}")
+        print(f"❌ Error: Missing required server files: {missing_files}")
         return False
+    
+    # Check optional files and dependencies
+    for file_path in optional_files:
+        if not (base_dir / file_path).exists():
+            print(f"ℹ️ Optional server {file_path} not found, will skip...")
+    
+    # Check if pandas is available for Signal SP Session
+    try:
+        import pandas
+        print("✅ Pandas available - Signal SP Session analytics enabled")
+    except ImportError:
+        print("⚠️ Pandas not available - Signal SP Session will be skipped")
     
     return True
 
@@ -187,7 +202,7 @@ def get_server_config():
         }
     ]
     
-    # Optional servers (include if files exist)
+    # Optional servers (include if files exist and dependencies available)
     optional_servers = [
         {
             'name': 'IntelligenceWebhook',
@@ -197,8 +212,13 @@ def get_server_config():
                 'PORT': os.environ['INTELLIGENCE_WEBHOOK_PORT']
             },
             'file_check': 'Conversational Intelligence/server.py'
-        },
-        {
+        }
+    ]
+    
+    # Signal Analytics - only if pandas is available
+    try:
+        import pandas
+        optional_servers.append({
             'name': 'SignalAnalytics',
             'command': 'python server.py', 
             'cwd': base_dir / 'Signal SP Session',
@@ -206,8 +226,10 @@ def get_server_config():
                 'PORT': os.environ['SIGNAL_ANALYTICS_PORT']
             },
             'file_check': 'Signal SP Session/server.py'
-        }
-    ]
+        })
+        print("✅ Including Signal Analytics (pandas available)")
+    except ImportError:
+        print("⚠️ Skipping Signal Analytics (pandas not available)")
     
     # Add optional servers if they exist
     for server in optional_servers:

@@ -1,0 +1,32 @@
+# Lightweight requirements for Render deployment
+# Core server dependencies only
+
+# Core async web framework
+aiohttp==3.9.5
+aiohttp-cors==0.7.0
+aiohttp-jinja2==1.6.0
+
+# Environment and configuration
+python-dotenv==1.0.1
+
+# AI/ML (lighter versions)
+openai==1.12.0
+
+# Twilio SDK
+twilio==9.0.4
+
+# Web framework for webhooks
+flask==3.0.2
+
+# Templating and output
+jinja2==3.1.3
+colorama==0.4.6
+
+# Async runtime
+asyncio
+
+# Optional data processing (lighter alternative to pandas)
+# numpy==1.26.4  # Only if absolutely needed
+
+# Development utilities
+requests==2.31.0
