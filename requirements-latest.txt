@@ -1,0 +1,35 @@
+# Latest Python 3.13 compatible requirements
+# Updated for October 2025
+
+# Core async web framework
+aiohttp==3.10.11
+aiohttp-cors==0.7.0
+aiohttp-jinja2==1.6.0
+
+# Environment and configuration
+python-dotenv==1.0.1
+
+# AI/ML (latest compatible versions)
+openai==1.51.2
+pandas==2.2.3
+numpy==2.1.2
+
+# Twilio SDK (latest)
+twilio==9.3.5
+
+# Web framework for webhooks
+flask==3.0.3
+
+# Templating and output
+jinja2==3.1.4
+colorama==0.4.6
+
+# Async runtime
+asyncio
+
+# Development utilities
+requests==2.32.3
+
+# Additional ML/Data dependencies if needed
+# scikit-learn==1.5.2
+# matplotlib==3.9.2

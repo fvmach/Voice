@@ -5,24 +5,30 @@ services:
     name: cross-channel-ai-complete
     runtime: python3
     buildCommand: |
-      # Ensure we're using Python 3.11 (compatible with all dependencies)
+      # Force Python version and upgrade tools
       echo "Using Python version: $(python --version)"
+      python -c "import sys; print(f'Python executable: {sys.executable}')"
+      python -c "import sys; print(f'Python version info: {sys.version_info}')"
       
-      # Upgrade pip to latest version
-      pip install --upgrade pip
+      # Upgrade pip and build tools
+      pip install --upgrade pip setuptools wheel
       
-      # Install Python dependencies with better error handling
-      pip install -r requirements.txt --no-cache-dir
+      # Install latest compatible dependencies
+      pip install -r requirements.txt --no-cache-dir --force-reinstall
       
-      # Verify core imports work
-      python -c "import aiohttp, flask, twilio, openai; print('Core dependencies verified')"
+      # Verify pandas installation specifically
+      python -c "import pandas as pd; print(f'✅ Pandas {pd.__version__} installed successfully')"
+      
+      # Verify other core imports
+      python -c "import aiohttp, flask, twilio, openai; print('✅ Core dependencies verified')"
       
       # Test environment configuration
-      python -c "from config.environment import get_env_manager; print('Environment setup complete')" || echo "Environment config not available, continuing..."
+      python -c "from config.environment import get_env_manager; print('✅ Environment setup complete')" || echo "⚠️ Environment config not available, continuing..."
       
       # Install Node.js (use apt for Debian-based Render environment)
       curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
       apt-get install -y nodejs
+      echo "Node.js version: $(node --version)"
       
       # Install Conversations API dependencies
       cd Conversations
@@ -35,6 +41,8 @@ services:
       
       # Verify startup script exists
       ls -la start_complete_server.py
+      
+      echo "✅ Build completed successfully"
     startCommand: python start_complete_server.py
     plan: starter
     env:

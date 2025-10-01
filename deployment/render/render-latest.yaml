@@ -1,0 +1,84 @@
+services:
+  # Latest Python 3.13 Compatible Cross-Channel AI Agents Service
+  # Uses absolute latest versions of all dependencies
+  - type: web
+    name: cross-channel-ai-latest
+    runtime: python3
+    buildCommand: |
+      # Show Python version info
+      echo "🐍 Python version: $(python --version)"
+      python -c "import sys; print(f'Python path: {sys.executable}')"
+      python -c "import sys; print(f'Version info: {sys.version_info}')"
+      
+      # Upgrade build tools first
+      pip install --upgrade pip setuptools wheel
+      echo "📦 Build tools upgraded"
+      
+      # Use latest compatible requirements
+      pip install -r requirements-latest.txt --no-cache-dir --force-reinstall
+      echo "📦 Latest dependencies installed"
+      
+      # Verify pandas works with Python 3.13
+      python -c "import pandas as pd; print(f'✅ Pandas {pd.__version__} working with current Python version')" 
+      
+      # Verify all core dependencies
+      python -c "import sys, pandas as pd, aiohttp, flask, twilio, openai; print('✅ All dependencies verified')"
+      
+      # Test environment configuration (optional)
+      python -c "from config.environment import get_env_manager; print('✅ Environment config loaded')" || echo "⚠️ Environment config optional, skipping..."
+      
+      # Install Node.js for Conversations API
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+      echo "🟢 Node.js $(node --version) installed"
+      
+      # Build Conversations frontend
+      cd Conversations
+      npm install --production
+      npm run render-postbuild
+      cd ..
+      echo "⚛️ React frontend built"
+      
+      # Prepare startup script
+      chmod +x start_complete_server.py
+      echo "🚀 Startup script prepared"
+      
+      echo "🎉 Build completed successfully with latest dependencies!"
+    startCommand: python start_complete_server.py
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      # Twilio Configuration
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_INTELLIGENCE_SERVICE_SID
+        sync: false
+      # OpenAI Configuration
+      - key: OPENAI_API_KEY
+        sync: false
+      # Segment Configuration (optional)
+      - key: SEGMENT_SPACE_ID
+        sync: false
+      - key: SEGMENT_ACCESS_SECRET
+        sync: false
+      # Debug Configuration
+      - key: DEBUG_MODE
+        value: false
+    healthCheckPath: /health
+
+databases:
+  - name: conversations-db
+    plan: starter
+    databaseName: conversations
+    user: conversations_user
+
+  - name: analytics-redis
+    plan: starter
+    type: redis
