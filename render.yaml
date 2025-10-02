@@ -1,0 +1,40 @@
+services:
+  # Cross-Channel AI Agents (Python + Node.js)
+  - type: web
+    name: ai-agents
+    runtime: python3
+    buildCommand: |
+      # Ensure Node.js is available
+      node --version
+      npm --version
+      # Install Python dependencies
+      pip install -r requirements.txt
+      # Install Node.js dependencies
+      cd Conversations
+      npm ci
+      cd ..
+      echo "✅ Build complete: Python + Node.js dependencies installed"
+    startCommand: python start_render.py
+    plan: starter
+    env:
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: render
+      - key: PORT
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_INTELLIGENCE_SERVICE_SID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SEGMENT_SPACE_ID
+        sync: false
+      - key: SEGMENT_ACCESS_SECRET
+        sync: false
+      - key: DEBUG_MODE
+        value: false
+    healthCheckPath: /health

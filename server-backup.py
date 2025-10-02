@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+try:
+    from config.environment import get_env_manager, ServiceType
+except ImportError:
+    # Fallback for deployments without the config module
+    get_env_manager = None
+    ServiceType = None
 from aiohttp import web, WSMsgType
 from colorama import Fore, Style, init as colorama_init
 import aiohttp_jinja2
@@ -60,7 +66,11 @@ import asyncio
 class LLMClient:
     def __init__(self, config: ConversationConfig):
         self.config = config
-        self.client = OpenAI()
+        # Initialize OpenAI client with only supported parameters
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+        self.client = OpenAI(api_key=api_key)
 
     async def initialize(self):
         pass
@@ -334,13 +344,28 @@ async def main():
     app.router.add_post('/webhook', handle_event_streams_webhook)
     app.router.add_post('/events', handle_event_streams_webhook)
     app.router.add_get('/', lambda request: web.Response(text="Twilio WebSocket/HTTP Server Running"))
+    app.router.add_get('/health', lambda request: web.json_response({
+        "status": "healthy",
+        "service": "conversation-relay",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "environment": os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    }))
 
 
     for route in list(app.router.routes()):
         cors.add(route)
-    host = "localhost"
-    port = 8080
+    
+    # Environment-aware host and port configuration
+    deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    if deployment_env in ['render', 'heroku', 'aws', 'gcp']:
+        host = "0.0.0.0"  # Bind to all interfaces for cloud deployment
+        port = int(os.getenv('PORT', 8080))
+    else:
+        host = "localhost"
+        port = int(os.getenv('PORT', 8080))
+    
     logger.info(f"{Fore.BLUE}[SYS] Starting Twilio WebSocket/HTTP server on {host}:{port}{Style.RESET_ALL}\n")
+    logger.info(f"{Fore.BLUE}[SYS] Environment: {deployment_env}{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] WebSocket endpoint: ws://{host}:{port}/websocket{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] HTTP webhook endpoint: http://{host}:{port}/webhook{Style.RESET_ALL}\n")
     await web._run_app(app, host=host, port=port)

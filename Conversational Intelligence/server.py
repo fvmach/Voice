@@ -3,8 +3,15 @@ import os
 import threading
 import time
 from flask import Flask, request, jsonify
-from pyngrok import ngrok
 from dotenv import load_dotenv
+
+# Try to import pyngrok, but handle gracefully if not available (for production)
+try:
+    from pyngrok import ngrok
+    NGROK_AVAILABLE = True
+except ImportError:
+    NGROK_AVAILABLE = False
+    print("Warning: pyngrok not available. Ngrok functionality disabled.")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,7 +22,9 @@ app = Flask(__name__)
 # Store for received data
 received_data = []
 
-PORT=4000
+# Environment-aware port configuration
+deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+PORT = int(os.getenv('PORT', 4000))
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -106,13 +115,25 @@ def webhook():
         print(f"Raw request data: {request.get_data()}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for cloud deployments"""
+    return jsonify({
+        "status": "healthy",
+        "service": "intelligence-webhook",
+        "environment": deployment_env,
+        "webhooks_received": len(received_data)
+    })
+
 @app.route('/status', methods=['GET'])
 def status():
-    """Health check endpoint"""
+    """Status endpoint with detailed information"""
     return jsonify({
         "status": "running",
+        "environment": deployment_env,
         "webhooks_received": len(received_data),
-        "last_webhook": received_data[-1] if received_data else None
+        "last_webhook": received_data[-1] if received_data else None,
+        "ngrok_available": NGROK_AVAILABLE
     })
 
 @app.route('/data', methods=['GET'])
@@ -131,7 +152,11 @@ def clear_data():
     return jsonify({"status": "cleared", "webhooks_received": 0})
 
 def setup_ngrok():
-    """Setup ngrok tunnel"""
+    """Setup ngrok tunnel (only in local development)"""
+    if not NGROK_AVAILABLE:
+        print("Warning: pyngrok not available. Skipping ngrok setup.")
+        return None
+        
     ngrok_domain = os.getenv('NGROK_DOMAIN')
     
     print("Starting ngrok tunnel...")
@@ -151,22 +176,41 @@ def setup_ngrok():
 
 if __name__ == "__main__":
     try:
-        # Setup ngrok tunnel
-        public_url = setup_ngrok()
+        print(f"\n🚀 Starting Intelligence Webhook Server")
+        print(f"Environment: {deployment_env}")
+        print(f"Port: {PORT}")
         
-        print("\nServer is starting...")
-        print("You can check server status at:", f"{public_url}/status")
-        print("You can get webhook data at:", f"{public_url}/data")
+        # Setup ngrok tunnel ONLY for local development
+        public_url = None
+        if deployment_env == 'local' and NGROK_AVAILABLE:
+            public_url = setup_ngrok()
+            print("You can check server status at:", f"{public_url}/status")
+            print("You can get webhook data at:", f"{public_url}/data")
+        else:
+            print(f"Running in {deployment_env} environment - ngrok disabled")
+            print(f"Health check: http://localhost:{PORT}/health")
+            print(f"Status endpoint: http://localhost:{PORT}/status")
+            print(f"Data endpoint: http://localhost:{PORT}/data")
+        
         print("\n" + "="*60)
         print("Press Ctrl+C to stop the server")
         print("="*60)
         
-        # Run the Flask server
-        app.run(host='0.0.0.0', port=PORT, debug=False)
+        # Run the Flask server with environment-aware host
+        if deployment_env in ['render', 'heroku', 'aws', 'gcp']:
+            host = '0.0.0.0'  # Bind to all interfaces for cloud deployment
+        else:
+            host = '0.0.0.0'  # Also use 0.0.0.0 for local to allow external access
+            
+        app.run(host=host, port=PORT, debug=(deployment_env == 'local'))
         
     except KeyboardInterrupt:
         print("\nShutting down server...")
-        ngrok.disconnect(PORT)
+        if deployment_env == 'local' and NGROK_AVAILABLE:
+            try:
+                ngrok.disconnect(PORT)
+            except:
+                pass  # Ignore errors during shutdown
         print("Server stopped.")
     except Exception as e:
         print(f"Error starting server: {str(e)}")

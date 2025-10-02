@@ -1,5 +1,39 @@
 # Render Deployment Guide
 
+## 🔧 Fixes Applied for October 2025
+
+We've fixed the following issues from your Render deployment:
+
+### ✅ **1. Missing Node.js Dependencies**
+- **Problem**: `Error: Cannot find module 'express'`
+- **Solution**: Added `npm ci` to build command in `render.yaml`
+
+### ✅ **2. Inappropriate pyngrok Usage**  
+- **Problem**: `ModuleNotFoundError: No module named 'pyngrok'`
+- **Solution**: Made pyngrok optional in `Conversational Intelligence/server.py`
+- **Note**: ngrok is only used for local development, not production
+
+### ✅ **3. OpenAI Client Configuration**
+- **Problem**: `Client.__init__() got an unexpected keyword argument 'proxies'`
+- **Solution**: Fixed OpenAI client initialization in `server-backup.py`
+
+### ✅ **4. Multiple Service Coordination**
+- **Problem**: Multiple servers trying to start independently causing conflicts
+- **Solution**: Created `start_render.py` that coordinates both servers properly
+
+### ✅ **5. Environment-Aware Configuration**
+- Added environment detection for host binding (`0.0.0.0` for cloud, `localhost` for local)
+- Added health check endpoints for both services
+- Made ngrok usage environment-conditional
+
+## 📁 **Key Files Updated**
+
+1. **`render.yaml`** - Single service that runs both Python and Node.js servers
+2. **`start_render.py`** - Orchestrates startup of both servers with proper coordination
+3. **`server-backup.py`** - Fixed OpenAI client and made environment-aware
+4. **`Conversational Intelligence/server.py`** - Made pyngrok optional
+5. **`requirements.txt`** - Updated with compatible versions
+
 ## 🚀 Deployment Options
 
 ### Option 1: Lightweight Core Deployment (Recommended)
