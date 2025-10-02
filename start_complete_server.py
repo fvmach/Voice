@@ -144,7 +144,7 @@ def check_server_requirements():
     base_dir = Path(__file__).parent.absolute()
     
     required_files = [
-        'server-backup.py',
+        'Signal SP Session/server.py',
         'Conversations/server.js'
     ]
     
@@ -183,9 +183,9 @@ def get_server_config():
     # Core servers (always included)
     servers = [
         {
-            'name': 'ConversationRelay',
-            'command': f'python server-backup.py',
-            'cwd': base_dir,
+            'name': 'SignalSPSession',
+            'command': 'python server.py',
+            'cwd': base_dir / 'Signal SP Session',
             'env': {
                 'PORT': os.environ['CONVERSATION_RELAY_PORT']
             },

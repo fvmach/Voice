@@ -71,27 +71,13 @@ class LLMClient:
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         
-        # Initialize with explicit minimal parameters only
+        # Initialize OpenAI client with minimal parameters
         try:
-            # Try basic initialization without any extra parameters
             self.client = OpenAI(api_key=api_key)
-        except TypeError as e:
-            if "proxies" in str(e):
-                # Fallback for older OpenAI library versions
-                logger.warning(f"{Fore.YELLOW}[WARN] Using fallback OpenAI client initialization{Style.RESET_ALL}\n")
-                try:
-                    # Import and initialize the older way if needed
-                    import openai
-                    openai.api_key = api_key
-                    self.client = openai
-                except Exception as fallback_error:
-                    logger.error(f"{Fore.RED}[ERR] Fallback OpenAI init failed: {fallback_error}{Style.RESET_ALL}\n")
-                    raise fallback_error
-            else:
-                raise e
+            logger.info(f"{Fore.GREEN}[SYS] OpenAI client initialized with model: {self.config.openai_model}{Style.RESET_ALL}\n")
         except Exception as e:
-            # Log the specific error for debugging
-            logger.error(f"{Fore.RED}[ERR] OpenAI client init error: {e}{Style.RESET_ALL}\n")
+            logger.error(f"{Fore.RED}[ERR] OpenAI client initialization failed: {e}{Style.RESET_ALL}\n")
+            logger.error(f"{Fore.RED}[ERR] Please check your OPENAI_API_KEY and ensure you have the latest openai library{Style.RESET_ALL}\n")
             raise e
 
     async def initialize(self):

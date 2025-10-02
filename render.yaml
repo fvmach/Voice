@@ -17,7 +17,7 @@ services:
       npm run build
       cd ../..
       echo "Build complete: Python + Node.js dependencies installed and React client built"
-    startCommand: python start_render.py
+    startCommand: python start_complete_server.py
     plan: starter
     env:
       - key: DEPLOYMENT_ENVIRONMENT

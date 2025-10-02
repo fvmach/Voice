@@ -21,7 +21,13 @@ import pandas as pd
 import csv
 from pathlib import Path
 import math
-from pyngrok import ngrok
+# Import pyngrok conditionally for local development
+try:
+    from pyngrok import ngrok
+    NGROK_AVAILABLE = True
+except ImportError:
+    NGROK_AVAILABLE = False
+    logger.info(f"{Fore.YELLOW}[SYS] pyngrok not available - ngrok features disabled{Style.RESET_ALL}")
 
 from tools.personalization import get_personalization_context # Integração com o Twilio Segment para personalização das interações
 
@@ -738,7 +744,7 @@ class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = "gpt-4o-2024-11-20"  # Fixed model name
+    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini-2024-08-07')  # Use environment variable with fallback
 
 import asyncio
 
@@ -1579,6 +1585,11 @@ async def preload_transcripts_for_service(service_sid: str, ws_handler: TwilioWe
 
 def setup_ngrok_tunnel(port: int):
     """Setup ngrok tunnel if environment variables are present"""
+    # Check if pyngrok is available
+    if not NGROK_AVAILABLE:
+        logger.info(f"{Fore.YELLOW}[NGROK] pyngrok not available - skipping tunnel setup{Style.RESET_ALL}")
+        return None
+        
     ngrok_domain = os.getenv('NGROK_DOMAIN')
     ngrok_auth_token = os.getenv('NGROK_AUTH_TOKEN')
     
@@ -1647,6 +1658,12 @@ async def main():
     app.router.add_post('/voice', generate_voice_twiml)
     app.router.add_get('/voice', generate_voice_twiml)
     app.router.add_get('/', lambda request: web.Response(text="Twilio WebSocket/HTTP Server Running"))
+    app.router.add_get('/health', lambda request: web.json_response({
+        "status": "healthy",
+        "service": "signal-sp-session",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "environment": os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    }))
     app.router.add_get('/intel-aggregates', lambda req: web.json_response(
         sanitize_json(load_aggregated_intel_results(req.rel_url.query.get("group", "day")))
     ))
@@ -1658,11 +1675,20 @@ async def main():
 
     for route in list(app.router.routes()):
         cors.add(route)
-    host = "localhost"
-    port = 8080
     
-    # Setup ngrok tunnel if configured
-    public_url = setup_ngrok_tunnel(port)
+    # Environment-aware host and port configuration
+    deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    if deployment_env in ['render', 'heroku', 'aws', 'gcp']:
+        host = "0.0.0.0"  # Bind to all interfaces for cloud deployment
+        port = int(os.getenv('PORT', 8080))
+        # Skip ngrok setup in production environments
+        public_url = None
+        logger.info(f"{Fore.BLUE}[SYS] Production environment detected: {deployment_env}{Style.RESET_ALL}")
+    else:
+        host = "localhost"
+        port = int(os.getenv('PORT', 8080))
+        # Setup ngrok tunnel if configured for local development
+        public_url = setup_ngrok_tunnel(port)
     
     logger.info(f"{Fore.BLUE}[SYS] Starting Twilio WebSocket/HTTP server on {host}:{port}{Style.RESET_ALL}\n")
     
@@ -1708,18 +1734,20 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info(f"{Fore.BLUE}[SYS] Server stopped by user{Style.RESET_ALL}\n")
-        # Clean up ngrok tunnels
-        try:
-            ngrok.disconnect_all()
-            ngrok.kill()
-            logger.info(f"{Fore.YELLOW}[NGROK] Tunnels disconnected{Style.RESET_ALL}\n")
-        except Exception as ngrok_error:
-            logger.error(f"{Fore.RED}[NGROK] Error cleaning up tunnels: {ngrok_error}{Style.RESET_ALL}\n")
+        # Clean up ngrok tunnels if available
+        if NGROK_AVAILABLE:
+            try:
+                ngrok.disconnect_all()
+                ngrok.kill()
+                logger.info(f"{Fore.YELLOW}[NGROK] Tunnels disconnected{Style.RESET_ALL}\n")
+            except Exception as ngrok_error:
+                logger.error(f"{Fore.RED}[NGROK] Error cleaning up tunnels: {ngrok_error}{Style.RESET_ALL}\n")
     except Exception as e:
         logger.error(f"{Fore.RED}[ERR] Server error: {e}{Style.RESET_ALL}\n")
-        # Clean up ngrok tunnels on error too
-        try:
-            ngrok.disconnect_all()
-            ngrok.kill()
-        except:
-            pass
+        # Clean up ngrok tunnels on error too if available
+        if NGROK_AVAILABLE:
+            try:
+                ngrok.disconnect_all()
+                ngrok.kill()
+            except:
+                pass
