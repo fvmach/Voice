@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from dataclasses import dataclass
 from openai import OpenAI
@@ -18,7 +19,7 @@ class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = "gpt-4o-2024-11-20"
+    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini-2024-08-07')  # Use environment variable with fallback
 
 class EnhancedLLMClient:
     """Enhanced LLM client with OpenAI Functions support"""
