@@ -66,11 +66,20 @@ import asyncio
 class LLMClient:
     def __init__(self, config: ConversationConfig):
         self.config = config
-        # Initialize OpenAI client with only supported parameters
+        # Initialize OpenAI client with minimal parameters to avoid compatibility issues
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
-        self.client = OpenAI(api_key=api_key)
+        
+        # Initialize with explicit minimal parameters only
+        try:
+            self.client = OpenAI(
+                api_key=api_key
+            )
+        except Exception as e:
+            # Log the specific error for debugging
+            logger.error(f"{Fore.RED}[ERR] OpenAI client init error: {e}{Style.RESET_ALL}\n")
+            raise e
 
     async def initialize(self):
         pass
@@ -105,7 +114,7 @@ class LLMClient:
 class TwilioWebSocketHandler:
     def __init__(self):
         self.config = ConversationConfig()
-        self.llm_client = LLMClient(self.config)
+        self.llm_client = None  # Initialize later to avoid startup failures
         self.websocket = None
         self.conversation_sid = None
         self.latest_prompt_flags = {
@@ -115,8 +124,27 @@ class TwilioWebSocketHandler:
         }
         self.dashboard_clients = set()
         self.language = 'pt-BR'  # default
+        self._llm_initialized = False
 
-
+    def _ensure_llm_client(self):
+        """Initialize LLM client if not already done"""
+        if not self._llm_initialized:
+            try:
+                # Only initialize if we have an API key
+                if not os.getenv('OPENAI_API_KEY'):
+                    logger.warning(f"{Fore.YELLOW}[WARN] No OpenAI API key, skipping LLM client initialization{Style.RESET_ALL}\n")
+                    self.llm_client = None
+                    self._llm_initialized = True  # Mark as "initialized" to avoid retries
+                    return
+                    
+                self.llm_client = LLMClient(self.config)
+                self._llm_initialized = True
+                logger.info(f"{Fore.GREEN}[SYS] LLM client initialized successfully{Style.RESET_ALL}\n")
+            except Exception as e:
+                logger.warning(f"{Fore.YELLOW}[WARN] Failed to initialize LLM client: {e}{Style.RESET_ALL}\n")
+                logger.warning(f"{Fore.YELLOW}[WARN] LLM features will be disabled{Style.RESET_ALL}\n")
+                self.llm_client = None
+                self._llm_initialized = True  # Mark as "initialized" to avoid retries
 
     async def broadcast_to_dashboard(self, payload: dict):
         msg = json.dumps(payload)
@@ -134,7 +162,11 @@ class TwilioWebSocketHandler:
         logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}\n")
 
         try:
-            await self.llm_client.initialize()
+            # Initialize LLM client on first connection
+            self._ensure_llm_client()
+            if self.llm_client:
+                await self.llm_client.initialize()
+                
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     await self.route_message(msg.data)
@@ -143,7 +175,8 @@ class TwilioWebSocketHandler:
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] WebSocket error: {e}{Style.RESET_ALL}\n")
         finally:
-            await self.llm_client.close()
+            if self.llm_client:
+                await self.llm_client.close()
             logger.info(f"{Fore.BLUE}[SYS] WebSocket connection closed{Style.RESET_ALL}\n")
         return ws
 
@@ -368,10 +401,39 @@ async def main():
     logger.info(f"{Fore.BLUE}[SYS] Environment: {deployment_env}{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] WebSocket endpoint: ws://{host}:{port}/websocket{Style.RESET_ALL}\n")
     logger.info(f"{Fore.BLUE}[SYS] HTTP webhook endpoint: http://{host}:{port}/webhook{Style.RESET_ALL}\n")
-    await web._run_app(app, host=host, port=port)
+    # Use the proper aiohttp runner for production deployment
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host, port)
+    await site.start()
+    
+    logger.info(f"{Fore.GREEN}[SYS] Server started successfully and listening{Style.RESET_ALL}\n")
+    
+    # Keep the server running indefinitely
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        logger.info(f"{Fore.BLUE}[SYS] Server shutdown requested{Style.RESET_ALL}\n")
+    finally:
+        await runner.cleanup()
 
 if __name__ == "__main__":
     try:
+        # Test OpenAI client initialization before starting server
+        api_key = os.getenv('OPENAI_API_KEY')
+        if api_key:
+            logger.info(f"{Fore.BLUE}[SYS] OpenAI API key found, testing client...{Style.RESET_ALL}\n")
+            try:
+                test_client = OpenAI(api_key=api_key)
+                logger.info(f"{Fore.GREEN}[SYS] OpenAI client test successful{Style.RESET_ALL}\n")
+            except Exception as openai_error:
+                logger.warning(f"{Fore.YELLOW}[WARN] OpenAI client test failed: {openai_error}{Style.RESET_ALL}\n")
+                logger.warning(f"{Fore.YELLOW}[WARN] Server will start anyway, LLM features will be disabled{Style.RESET_ALL}\n")
+        else:
+            logger.warning(f"{Fore.YELLOW}[WARN] No OpenAI API key found, LLM features will be disabled{Style.RESET_ALL}\n")
+            
+        # Start the server regardless of OpenAI status
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info(f"{Fore.BLUE}[SYS] Server stopped by user{Style.RESET_ALL}\n")

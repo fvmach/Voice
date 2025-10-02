@@ -88,12 +88,12 @@ def main():
     
     # Verify environment
     deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'render')
-    main_port = int(os.getenv('PORT', '8080'))
-    api_port = main_port + 1  # API runs on PORT + 1
+    render_port = int(os.getenv('PORT', '10000'))  # Render's default is 10000
     
+    # For Render, use the assigned PORT as primary
     log(f"Environment: {deployment_env}")
-    log(f"Python server port: {main_port}")
-    log(f"Node.js API port: {api_port}")
+    log(f"Render assigned PORT: {render_port}")
+    log(f"Primary server will use port: {render_port}")
     
     # Verify required environment variables
     required_vars = ['OPENAI_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN']
@@ -114,12 +114,11 @@ def main():
     env = os.environ.copy()
     env['DEPLOYMENT_ENVIRONMENT'] = 'render'
     
-    # Global process references for cleanup
+    # Global process reference for cleanup
     python_process = None
-    node_process = None
     
     def cleanup_processes():
-        """Clean up both processes on exit"""
+        """Clean up python process on exit"""
         log("Cleaning up processes...")
         if python_process and python_process.poll() is None:
             python_process.terminate()
@@ -127,12 +126,6 @@ def main():
                 python_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 python_process.kill()
-        if node_process and node_process.poll() is None:
-            node_process.terminate()
-            try:
-                node_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                node_process.kill()
         log("Cleanup completed")
     
     def signal_handler(signum, frame):
@@ -145,10 +138,10 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
-        # Start Python server in background
+        # Start Python server on the main Render PORT
         log("Starting Python server...")
         python_env = env.copy()
-        python_env['PORT'] = str(main_port)
+        python_env['PORT'] = str(render_port)
         
         python_process = subprocess.Popen([
             sys.executable, 'server-backup.py'
@@ -164,67 +157,22 @@ def main():
             sys.exit(1)
         
         log("Python server started successfully")
-        # Install Node.js dependencies
-        log("Installing Node.js dependencies...")
-        node_env = env.copy()
-        node_env['NODE_ENV'] = 'production'
         
-        install_result = subprocess.run([
-            'npm', 'install'
-        ], cwd='Conversations', env=node_env, capture_output=True, text=True, timeout=300)
+        log("Python server is running!")
+        log(f"Python server: http://0.0.0.0:{render_port}")
+        log("Monitoring server...")
         
-        if install_result.returncode != 0:
-            log(f"ERROR: npm install failed: {install_result.stderr}")
-            cleanup_processes()
-            sys.exit(1)
-            
-        log("Node.js dependencies installed")
-        
-        # Start Node.js server
-        log("Starting Node.js server...")
-        node_env['PORT'] = str(api_port)
-        
-        node_process = subprocess.Popen([
-            'node', 'server.js'
-        ], cwd='Conversations', env=node_env)
-        
-        # Give Node server time to start
-        time.sleep(3)
-        
-        # Check if Node server started successfully
-        if node_process.poll() is not None:
-            log(f"ERROR: Node.js server failed to start (exit code: {node_process.returncode})")
-            cleanup_processes()
-            sys.exit(1)
-            
-        log("Node.js server started successfully")
-        
-        log("Both servers are running!")
-        log(f"Python server: http://0.0.0.0:{main_port}")
-        log(f"Node.js API: http://0.0.0.0:{api_port}")
-        log("Waiting for processes...")
-        
-        # Wait for both processes (this keeps the script alive)
+        # Wait for Python process (this keeps the script alive)
         while True:
-            python_alive = python_process.poll() is None
-            node_alive = node_process.poll() is None
-            
-            if not python_alive:
+            if python_process.poll() is not None:
                 log(f"Python server exited with code: {python_process.returncode}")
-                break
-            if not node_alive:
-                log(f"Node.js server exited with code: {node_process.returncode}")
                 break
                 
             time.sleep(1)
             
         cleanup_processes()
-        # Don't exit with error code if servers exit cleanly
-        if python_process.returncode == 0 and node_process.returncode == 0:
-            log("Both servers completed successfully")
-            sys.exit(0)
-        else:
-            sys.exit(1)
+        # Exit with the same code as the Python server
+        sys.exit(python_process.returncode or 1)
         
     except KeyboardInterrupt:
         log("Servers stopped by user")
