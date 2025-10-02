@@ -42,4 +42,6 @@ services:
         sync: false
       - key: DEBUG_MODE
         value: false
+      - key: USE_OPENAI_FUNCTIONS
+        value: false
     healthCheckPath: /health

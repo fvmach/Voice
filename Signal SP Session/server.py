@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sys
 import aiohttp_cors
 from typing import Dict, Any
 from dataclasses import dataclass
@@ -40,12 +41,7 @@ load_dotenv()
 # Get DEBUG_MODE early since it's used in multiple places
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
-# Feature flag for OpenAI Functions
-USE_OPENAI_FUNCTIONS = os.getenv("USE_OPENAI_FUNCTIONS", "false").lower() == "true"
-
-# Import enhanced LLM client after environment variables are loaded
-if USE_OPENAI_FUNCTIONS:
-    from llm_client_enhanced import EnhancedLLMClient
+# OpenAI Functions feature disabled to simplify deployment
 
 # Initialize Twilio client
 from twilio.http.http_client import TwilioHttpClient
@@ -216,6 +212,39 @@ def load_aggregated_intel_results(group_by: str = "day") -> dict:
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
+# Early startup debugging and library version checks
+logger.info(f"{Fore.CYAN}[DEBUG] Starting server startup debugging{Style.RESET_ALL}")
+logger.info(f"{Fore.CYAN}[DEBUG] Python executable: {sys.executable}{Style.RESET_ALL}")
+logger.info(f"{Fore.CYAN}[DEBUG] Current working directory: {os.getcwd()}{Style.RESET_ALL}")
+
+# Log critical environment variables
+logger.info(f"{Fore.CYAN}[DEBUG] DEPLOYMENT_ENVIRONMENT: {os.getenv('DEPLOYMENT_ENVIRONMENT', 'not_set')}{Style.RESET_ALL}")
+logger.info(f"{Fore.CYAN}[DEBUG] OPENAI_API_KEY: {'set' if os.getenv('OPENAI_API_KEY') else 'not_set'}{Style.RESET_ALL}")
+logger.info(f"{Fore.CYAN}[DEBUG] OPENAI_MODEL: {os.getenv('OPENAI_MODEL', 'not_set')}{Style.RESET_ALL}")
+logger.info(f"{Fore.CYAN}[DEBUG] OpenAI Functions: Disabled{Style.RESET_ALL}")
+logger.info(f"{Fore.CYAN}[DEBUG] DEBUG_MODE: {DEBUG_MODE}{Style.RESET_ALL}")
+
+# Check OpenAI library version and compatibility
+try:
+    import openai
+    logger.info(f"{Fore.GREEN}[DEBUG] OpenAI library version: {openai.__version__}{Style.RESET_ALL}")
+    
+    # Test basic OpenAI client instantiation
+    from openai import OpenAI
+    logger.info(f"{Fore.CYAN}[DEBUG] OpenAI import successful, testing client creation{Style.RESET_ALL}")
+    
+    # Test without any arguments first
+    test_client = OpenAI()
+    logger.info(f"{Fore.GREEN}[DEBUG] Basic OpenAI() client creation successful{Style.RESET_ALL}")
+    del test_client
+    
+except ImportError as e:
+    logger.error(f"{Fore.RED}[ERR] OpenAI library not available: {e}{Style.RESET_ALL}")
+except Exception as e:
+    logger.error(f"{Fore.RED}[ERR] OpenAI client creation failed during startup test: {e}{Style.RESET_ALL}")
+    import traceback
+    logger.error(f"{Fore.RED}[ERR] OpenAI startup test traceback:\n{traceback.format_exc()}{Style.RESET_ALL}")
+
 # Silence noisy loggers if not in debug mode
 if not DEBUG_MODE:
     # Silence Twilio SDK HTTP logging
@@ -241,11 +270,19 @@ else:
 
 # Import simple banking tools and conversations logger
 try:
+    logger.info(f"{Fore.CYAN}[DEBUG] About to import banking tools{Style.RESET_ALL}")
     from tools.banking_tools import get_banking_tools
+    logger.info(f"{Fore.CYAN}[DEBUG] Banking tools imported successfully{Style.RESET_ALL}")
+    
+    logger.info(f"{Fore.CYAN}[DEBUG] About to import conversations logger{Style.RESET_ALL}")
     from tools.conversations_logger import get_conversations_logger
+    logger.info(f"{Fore.CYAN}[DEBUG] Conversations logger imported successfully{Style.RESET_ALL}")
+    
     logger.info(f"{Fore.GREEN}[SYS] Banking tools and conversations logger loaded{Style.RESET_ALL}")
 except ImportError as e:
     logger.error(f"{Fore.RED}[ERR] Failed to load banking tools: {e}{Style.RESET_ALL}")
+    import traceback
+    logger.error(f"{Fore.RED}[ERR] Import traceback:\n{traceback.format_exc()}{Style.RESET_ALL}")
     # Create dummy functions to prevent crashes
     def get_banking_tools():
         return None
@@ -751,7 +788,16 @@ import asyncio
 class LLMClient:
     def __init__(self, config: ConversationConfig):
         self.config = config
-        self.client = OpenAI()
+        logger.info(f"{Fore.CYAN}[DEBUG] About to create OpenAI() client in LLMClient{Style.RESET_ALL}")
+        
+        try:
+            self.client = OpenAI()
+            logger.info(f"{Fore.GREEN}[DEBUG] OpenAI() client created successfully in LLMClient{Style.RESET_ALL}")
+        except Exception as e:
+            logger.error(f"{Fore.RED}[ERR] Failed to create OpenAI() client in LLMClient: {e}{Style.RESET_ALL}")
+            import traceback
+            logger.error(f"{Fore.RED}[ERR] OpenAI client traceback:\n{traceback.format_exc()}{Style.RESET_ALL}")
+            raise
 
     async def initialize(self):
         pass
@@ -830,13 +876,14 @@ class LLMClient:
 class TwilioWebSocketHandler:
     def __init__(self):
         self.config = ConversationConfig()
-        # Use enhanced LLM client if feature flag is enabled
-        if USE_OPENAI_FUNCTIONS:
-            self.llm_client = EnhancedLLMClient(self.config)
-            logger.info(f"{Fore.GREEN}[SYS] Using Enhanced LLM Client with OpenAI Functions{Style.RESET_ALL}")
-        else:
-            self.llm_client = LLMClient(self.config)
-            logger.info(f"{Fore.BLUE}[SYS] Using Standard LLM Client{Style.RESET_ALL}")
+        
+        logger.info(f"{Fore.CYAN}[DEBUG] Initializing standard LLM client{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[DEBUG] OpenAI model: {self.config.openai_model}{Style.RESET_ALL}")
+        
+        # Always use standard LLM client (OpenAI Functions disabled)
+        logger.info(f"{Fore.CYAN}[DEBUG] Creating standard LLMClient instance{Style.RESET_ALL}")
+        self.llm_client = LLMClient(self.config)
+        logger.info(f"{Fore.BLUE}[SYS] Standard LLM Client initialized successfully{Style.RESET_ALL}")
         self.websocket = None
         self.conversation_sid = None
         self.latest_prompt_flags = {
@@ -848,6 +895,7 @@ class TwilioWebSocketHandler:
         self.language = 'pt-BR'  # default
         self.active_agent = "Olli"  # Default agent, will be updated in setup based on channel
         self.chat_history = []  # Stores full chat context
+        # Initialize banking tools and conversations logger (standard version only)
         self.banking_tools = get_banking_tools()
         self.conversations_logger = get_conversations_logger()
         self.customer_phone = None  # Store customer phone for banking operations
@@ -1058,135 +1106,68 @@ class TwilioWebSocketHandler:
             if self.customer_phone and self.conversations_logger:
                 self.conversations_logger.log_user_speech(self.customer_phone, text)
 
-            # Handle conversation processing based on feature flag
-            if USE_OPENAI_FUNCTIONS:
-                # Use OpenAI Functions approach - let GPT decide when to use tools
+            # Use standard banking tools approach (OpenAI Functions disabled)
+            banking_response = None
+            if self.banking_tools and self.customer_phone:
+                banking_response = self.banking_tools.process_user_input(text, self.customer_phone, self.language)
+                
+                if banking_response:
+                    logger.info(f"{Fore.GREEN}[BANK] Banking response generated{Style.RESET_ALL}")
+                    
+                    # Log banking action
+                    if self.conversations_logger:
+                        self.conversations_logger.log_banking_action(
+                            self.customer_phone, 
+                            "balance_check", 
+                            {"success": True, "response_generated": True}
+                        )
+                    
+                    # Broadcast banking action to dashboard
+                    await self.broadcast_to_dashboard({
+                        "type": "banking-action",
+                        "data": {
+                            "action": "balance_check",
+                            "customer_phone": self.customer_phone,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }
+                    })
+
+            # If we have a banking response, use it; otherwise get AI response
+            if banking_response:
+                # Send banking response directly
+                response_text = banking_response
+                
+                # Send token by token for consistency with streaming
+                words = response_text.split()
+                for i, word in enumerate(words):
+                    if i == 0:
+                        await self.send_response(word, partial=True)
+                    else:
+                        await self.send_response(f" {word}", partial=True)
+                    # Small delay to simulate natural speech
+                    await asyncio.sleep(0.05)
+                
+                # Update chat history
+                self.chat_history.append({"role": "user", "content": text})
+                self.chat_history.append({"role": "assistant", "content": response_text})
+                
+            else:
+                # Get AI response using standard approach
                 self.chat_history.append({"role": "user", "content": text})
                 
-                # Stream response with function support
+                # First, collect the complete response
                 response_buffer = []
-                async for token in self.llm_client.get_completion_from_history_with_functions(
+                async for token in self.llm_client.get_completion_from_history(
                     history=self.chat_history,
                     language=self.language,
                     agent_name=self.active_agent,
-                    customer_profile=self.personalization,
-                    customer_phone=self.customer_phone
+                    customer_profile=self.personalization
                 ):
                     response_buffer.append(token)
-                    # Stream token immediately
-                    await self.send_response(token, partial=True)
-                
+            
                 response_text = ''.join(response_buffer).strip()
                 
-            else:
-                # Legacy banking tools approach
-                banking_response = None
-                if self.banking_tools and self.customer_phone:
-                    banking_response = self.banking_tools.process_user_input(text, self.customer_phone, self.language)
-                    
-                    if banking_response:
-                        logger.info(f"{Fore.GREEN}[BANK] Banking response generated{Style.RESET_ALL}")
-                        
-                        # Log banking action
-                        if self.conversations_logger:
-                            self.conversations_logger.log_banking_action(
-                                self.customer_phone, 
-                                "balance_check", 
-                                {"success": True, "response_generated": True}
-                            )
-                        
-                        # Broadcast banking action to dashboard
-                        await self.broadcast_to_dashboard({
-                            "type": "banking-action",
-                            "data": {
-                                "action": "balance_check",
-                                "customer_phone": self.customer_phone,
-                                "timestamp": datetime.now(timezone.utc).isoformat()
-                            }
-                        })
-
-                # If we have a banking response, use it; otherwise get AI response
-                if banking_response:
-                    # Send banking response directly
-                    response_text = banking_response
-                    
-                    # Send token by token for consistency with streaming
-                    words = response_text.split()
-                    for i, word in enumerate(words):
-                        if i == 0:
-                            await self.send_response(word, partial=True)
-                        else:
-                            await self.send_response(f" {word}", partial=True)
-                        # Small delay to simulate natural speech
-                        await asyncio.sleep(0.05)
-                    
-                    # Update chat history
-                    self.chat_history.append({"role": "user", "content": text})
-                    self.chat_history.append({"role": "assistant", "content": response_text})
-                    
-                else:
-                    # Get AI response using existing logic
-                    self.chat_history.append({"role": "user", "content": text})
-                    
-                    # First, collect the complete response
-                    response_buffer = []
-                    async for token in self.llm_client.get_completion_from_history(
-                        history=self.chat_history,
-                        language=self.language,
-                        agent_name=self.active_agent,
-                        customer_profile=self.personalization
-                    ):
-                        response_buffer.append(token)
-                
-                    response_text = ''.join(response_buffer).strip()
-                    
-                    # Check for #route_to:<Agent> and remove it from the response
-                    route_match = re.search(r"#route_to:(\w+)", response_text)
-                    if route_match:
-                        requested_agent = route_match.group(1)
-                        # Remove the routing command from the response text before storing in history
-                        clean_response = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
-                        self.chat_history.append({"role": "assistant", "content": clean_response})
-                        
-                        if registry.get_agent(requested_agent):
-                            logger.info(f"{Fore.YELLOW}[ROUTE] Routing to agent: {requested_agent}{Style.RESET_ALL}")
-                            old_agent = self.active_agent
-                            self.active_agent = requested_agent
-                            logger.info(f"{Fore.GREEN}[AGENT] Active agent updated: {old_agent} -> {self.active_agent}{Style.RESET_ALL}")
-                            
-                            # Add context transfer message for the new agent
-                            transfer_context = f"[CONTEXT: Customer was transferred from {old_agent} to you ({requested_agent}). Previous conversation context is available.]"
-                            self.chat_history.append({"role": "system", "content": transfer_context})
-                            
-                            await self.broadcast_to_dashboard({
-                                "type": "agent-switch",
-                                "data": {"from": old_agent, "to": requested_agent}
-                            })
-                            
-                            # Set response_text to the clean version without routing command
-                            response_text = clean_response
-                        else:
-                            logger.warning(f"{Fore.YELLOW}[WARN] Unknown agent requested: {requested_agent}{Style.RESET_ALL}")
-                            # Still clean the response even if agent is unknown
-                            response_text = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
-                            self.chat_history.append({"role": "assistant", "content": response_text})
-                    else:
-                        self.chat_history.append({"role": "assistant", "content": response_text})
-                    
-                    # Now stream the cleaned response token by token
-                    if response_text.strip():
-                        words = response_text.split()
-                        for i, word in enumerate(words):
-                            if i == 0:
-                                await self.send_response(word, partial=True)
-                            else:
-                                await self.send_response(f" {word}", partial=True)
-                            # Small delay to simulate natural speech
-                            await asyncio.sleep(0.05)
-            
-            # Handle agent routing for OpenAI Functions flow (since responses were already streamed)
-            if USE_OPENAI_FUNCTIONS:
-                # Check for #route_to:<Agent> and remove it from the response for history
+                # Check for #route_to:<Agent> and remove it from the response
                 route_match = re.search(r"#route_to:(\w+)", response_text)
                 if route_match:
                     requested_agent = route_match.group(1)
@@ -1208,13 +1189,28 @@ class TwilioWebSocketHandler:
                             "type": "agent-switch",
                             "data": {"from": old_agent, "to": requested_agent}
                         })
+                        
+                        # Set response_text to the clean version without routing command
+                        response_text = clean_response
                     else:
                         logger.warning(f"{Fore.YELLOW}[WARN] Unknown agent requested: {requested_agent}{Style.RESET_ALL}")
                         # Still clean the response even if agent is unknown
-                        clean_response = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
-                        self.chat_history.append({"role": "assistant", "content": clean_response})
+                        response_text = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
+                        self.chat_history.append({"role": "assistant", "content": response_text})
                 else:
                     self.chat_history.append({"role": "assistant", "content": response_text})
+                
+                # Now stream the cleaned response token by token
+                if response_text.strip():
+                    words = response_text.split()
+                    for i, word in enumerate(words):
+                        if i == 0:
+                            await self.send_response(word, partial=True)
+                        else:
+                            await self.send_response(f" {word}", partial=True)
+                        # Small delay to simulate natural speech
+                        await asyncio.sleep(0.05)
+            
             
             # Log agent response to voice conversation
             if self.customer_phone and self.conversations_logger and response_text:

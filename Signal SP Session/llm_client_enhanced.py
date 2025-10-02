@@ -26,9 +26,24 @@ class EnhancedLLMClient:
     
     def __init__(self, config: ConversationConfig):
         self.config = config
-        self.client = OpenAI()
+        
+        # Add debugging for OpenAI client creation
+        logger.info(f"[DEBUG] About to create OpenAI() client in EnhancedLLMClient")
+        
+        try:
+            self.client = OpenAI()
+            logger.info(f"[DEBUG] OpenAI() client created successfully in EnhancedLLMClient")
+        except Exception as e:
+            logger.error(f"[ERR] Failed to create OpenAI() client in EnhancedLLMClient: {e}")
+            import traceback
+            logger.error(f"[ERR] Enhanced OpenAI client traceback:\n{traceback.format_exc()}")
+            raise
+        
+        logger.info(f"[DEBUG] About to get enhanced banking tools")
         self.banking_tools = get_enhanced_banking_tools()
+        logger.info(f"[DEBUG] About to build function schemas")
         self.function_schemas = self._build_function_schemas()
+        logger.info(f"[DEBUG] EnhancedLLMClient initialization complete")
     
     def _build_function_schemas(self) -> List[Dict]:
         """Build function schemas for the current agent context"""
