@@ -781,7 +781,11 @@ class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini')  # Use environment variable with fallback
+    openai_model = os.getenv('OPENAI_MODEL')  # Must be set in environment variables
+    
+    def __post_init__(self):
+        if not self.openai_model:
+            raise ValueError("OPENAI_MODEL environment variable is required but not set")
 
 import asyncio
 
