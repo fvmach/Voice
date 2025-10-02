@@ -4,6 +4,7 @@
 import requests
 import json
 import logging
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
@@ -12,12 +13,23 @@ logger = logging.getLogger(__name__)
 class ConversationsLogger:
     """Simple logger for voice conversations to Conversations Manager"""
     
-    def __init__(self, base_url: str = "http://localhost:3001/api"):
+    def __init__(self, base_url: str = None):
+        # In production/Render, disable conversations logging if no URL provided
+        # In development, use localhost by default
+        if base_url is None:
+            base_url = os.getenv("CONVERSATIONS_API_URL", "")
+            
+        self.base_url = base_url
+        self.enabled = bool(base_url)  # Disable if no URL configured
         self.base_url = base_url
         self.active_conversations = {}  # Track conversations by phone
     
     def create_voice_conversation(self, customer_phone: str, call_sid: str, agent_name: str = "Olli") -> Optional[str]:
         """Create a new conversation for a voice call"""
+        if not self.enabled:
+            logger.debug(f"[CONV] Conversations logging disabled - skipping conversation creation")
+            return None
+            
         try:
             conversation_data = {
                 "friendlyName": f"Voice Call - {customer_phone}",
@@ -61,6 +73,9 @@ class ConversationsLogger:
     
     def add_voice_participant(self, conversation_sid: str, customer_phone: str):
         """Add voice participant to conversation"""
+        if not self.enabled:
+            return
+            
         try:
             participant_data = {
                 "identity": f"voice:{customer_phone}",
@@ -83,6 +98,9 @@ class ConversationsLogger:
     
     def log_message(self, customer_phone: str, body: str, author: str = "system", message_type: str = "text", extra_data: Dict = None) -> bool:
         """Log a message to the voice conversation"""
+        if not self.enabled:
+            return True  # Return success to avoid blocking functionality
+            
         try:
             conversation_info = self.active_conversations.get(customer_phone)
             if not conversation_info:
