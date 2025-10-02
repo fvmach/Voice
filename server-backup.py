@@ -59,7 +59,7 @@ class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = "gpt-4.1"
+    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini-2024-08-07')  # Use environment variable with fallback
 
 import asyncio
 
@@ -73,9 +73,22 @@ class LLMClient:
         
         # Initialize with explicit minimal parameters only
         try:
-            self.client = OpenAI(
-                api_key=api_key
-            )
+            # Try basic initialization without any extra parameters
+            self.client = OpenAI(api_key=api_key)
+        except TypeError as e:
+            if "proxies" in str(e):
+                # Fallback for older OpenAI library versions
+                logger.warning(f"{Fore.YELLOW}[WARN] Using fallback OpenAI client initialization{Style.RESET_ALL}\n")
+                try:
+                    # Import and initialize the older way if needed
+                    import openai
+                    openai.api_key = api_key
+                    self.client = openai
+                except Exception as fallback_error:
+                    logger.error(f"{Fore.RED}[ERR] Fallback OpenAI init failed: {fallback_error}{Style.RESET_ALL}\n")
+                    raise fallback_error
+            else:
+                raise e
         except Exception as e:
             # Log the specific error for debugging
             logger.error(f"{Fore.RED}[ERR] OpenAI client init error: {e}{Style.RESET_ALL}\n")
@@ -299,6 +312,10 @@ class TwilioWebSocketHandler:
                 })
 
             # 🔁 Streaming response from LLM (token by token)
+            self._ensure_llm_client()
+            if self.llm_client is None:
+                raise RuntimeError("OpenAI client not initialized. Please check your OPENAI_API_KEY environment variable.")
+
             async for token in self.llm_client.get_completion(text, self.language):
                 await self.send_response(token, partial=True)
 
