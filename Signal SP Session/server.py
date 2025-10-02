@@ -781,7 +781,7 @@ class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini-2024-08-07')  # Use environment variable with fallback
+    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini')  # Use environment variable with fallback
 
 import asyncio
 
