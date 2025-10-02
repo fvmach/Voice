@@ -17,7 +17,7 @@ services:
       npm run build
       cd ../..
       echo "Build complete: Python + Node.js dependencies installed and React client built"
-    startCommand: python start_complete_server.py
+    startCommand: cd "Signal SP Session" && python server.py
     plan: starter
     env:
       - key: DEPLOYMENT_ENVIRONMENT
@@ -34,6 +34,8 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5-mini-2024-08-07
       - key: SEGMENT_SPACE_ID
         sync: false
       - key: SEGMENT_ACCESS_SECRET
