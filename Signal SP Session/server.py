@@ -791,10 +791,11 @@ class LLMClient:
         logger.info(f"{Fore.CYAN}[DEBUG] About to create OpenAI() client in LLMClient{Style.RESET_ALL}")
         
         try:
+            # Create OpenAI client - httpx==0.27.2 fixes the proxies compatibility issue
             self.client = OpenAI()
-            logger.info(f"{Fore.GREEN}[DEBUG] OpenAI() client created successfully in LLMClient{Style.RESET_ALL}")
+            logger.info(f"{Fore.GREEN}[DEBUG] OpenAI client created successfully in LLMClient{Style.RESET_ALL}")
         except Exception as e:
-            logger.error(f"{Fore.RED}[ERR] Failed to create OpenAI() client in LLMClient: {e}{Style.RESET_ALL}")
+            logger.error(f"{Fore.RED}[ERR] Failed to create OpenAI client in LLMClient: {e}{Style.RESET_ALL}")
             import traceback
             logger.error(f"{Fore.RED}[ERR] OpenAI client traceback:\n{traceback.format_exc()}{Style.RESET_ALL}")
             raise
