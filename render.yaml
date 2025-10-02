@@ -41,7 +41,7 @@ services:
       - key: SEGMENT_ACCESS_SECRET
         sync: false
       - key: DEBUG_MODE
-        value: false
+        value: true
       - key: USE_OPENAI_FUNCTIONS
         value: false
     healthCheckPath: /health

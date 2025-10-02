@@ -1158,10 +1158,12 @@ class TwilioWebSocketHandler:
                 
             else:
                 # Get AI response using standard approach
+                log_debug(f"[AI] Generating AI response for: {text}")
                 self.chat_history.append({"role": "user", "content": text})
                 
                 # First, collect the complete response
                 response_buffer = []
+                token_count = 0
                 async for token in self.llm_client.get_completion_from_history(
                     history=self.chat_history,
                     language=self.language,
@@ -1169,8 +1171,12 @@ class TwilioWebSocketHandler:
                     customer_profile=self.personalization
                 ):
                     response_buffer.append(token)
+                    token_count += 1
+                    if DEBUG_MODE and token_count % 10 == 0:  # Log every 10 tokens in debug mode
+                        log_debug(f"[AI] Received {token_count} tokens so far")
             
                 response_text = ''.join(response_buffer).strip()
+                log_debug(f"[AI] Complete response generated ({len(response_buffer)} tokens): {response_text[:100]}...")
                 
                 # Check for #route_to:<Agent> and remove it from the response
                 route_match = re.search(r"#route_to:(\w+)", response_text)
@@ -1207,14 +1213,23 @@ class TwilioWebSocketHandler:
                 
                 # Now stream the cleaned response token by token
                 if response_text.strip():
+                    log_debug(f"[STREAM] Starting to stream response: {len(response_text)} characters")
                     words = response_text.split()
+                    log_debug(f"[STREAM] Streaming {len(words)} words")
                     for i, word in enumerate(words):
                         if i == 0:
                             await self.send_response(word, partial=True)
+                            if DEBUG_MODE and i < 5:  # Log first 5 words in debug mode
+                                log_debug(f"[STREAM] Sent word {i+1}/{len(words)}: '{word}'")
                         else:
                             await self.send_response(f" {word}", partial=True)
+                            if DEBUG_MODE and i < 5:  # Log first 5 words in debug mode
+                                log_debug(f"[STREAM] Sent word {i+1}/{len(words)}: ' {word}'")
                         # Small delay to simulate natural speech
                         await asyncio.sleep(0.05)
+                    log_debug(f"[STREAM] Finished streaming all words")
+                else:
+                    log_debug(f"[STREAM] No response text to stream")
             
             
             # Log agent response to voice conversation
