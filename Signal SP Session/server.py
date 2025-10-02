@@ -41,6 +41,12 @@ load_dotenv()
 # Get DEBUG_MODE early since it's used in multiple places
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
+# Test debug logging early
+if DEBUG_MODE:
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")
+    print(f"{timestamp} [DEBUG] Debug mode is ENABLED - detailed logging active")
+
 # OpenAI Functions feature disabled to simplify deployment
 
 # Initialize Twilio client
@@ -90,7 +96,10 @@ RAW_NDJSON_FILE.touch(exist_ok=True)
 
 def log_debug(message):
     if DEBUG_MODE:
-        logger.debug(message)
+        # Use direct print with timestamp since logger might not be initialized yet
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")
+        print(f"{timestamp} [DEBUG] {message}")
 
 def extract_score(text, key):
     match = re.search(rf"{key} Score:\s*(\d+)", text)
