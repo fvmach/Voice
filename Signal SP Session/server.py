@@ -1264,8 +1264,8 @@ class TwilioWebSocketHandler:
             "type": "text",
             "token": text,
             "last": not partial,
-            "interruptible": self.latest_prompt_flags["interruptible"],
-            "preemptible": self.latest_prompt_flags["preemptible"]
+            "interruptible": True,   # Allow caller to interrupt TTS
+            "preemptible": False     # Don't allow subsequent messages to stop this one
         }
 
         # Add language code for TTS (as per Twilio docs)
