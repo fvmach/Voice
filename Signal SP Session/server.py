@@ -1006,10 +1006,21 @@ class TwilioWebSocketHandler:
         self.conversation_sid = data.get("callSid")
         logger.info(f"{Fore.BLUE}[SYS] Conversation setup - SID: {self.conversation_sid}{Style.RESET_ALL}\n")
         self.language = 'pt-BR'
-        
-        if DEBUG_MODE:
-            log_debug(f"[SETUP] WebSocket connection established for call {self.conversation_sid}")
-            log_debug(f"[SETUP] Setup data received: {json.dumps(data, indent=2)}")
+        await self.broadcast_to_dashboard({"type": "setup", "ts": datetime.now(timezone.utc)
+.isoformat(), "data": data})
+
+        # Proactively inform Conversation Relay of initial language for TTS/STT
+        try:
+            if self.websocket:
+                language_message = {
+                    "type": "language",
+                    "ttsLanguage": self.language,
+                    "transcriptionLanguage": self.language,
+                }
+                await self.websocket.send_str(json.dumps(language_message))
+                logger.info(f"{Fore.YELLOW}[LANG] Sent initial language to Conversation Relay: {language_message}{Style.RESET_ALL}\n")
+        except Exception as e:
+            logger.error(f"{Fore.RED}[ERR] Failed to send initial language: {e}{Style.RESET_ALL}\n")
 
         # Extract customer phone number
         from_number = data.get("from", "")
@@ -1262,24 +1273,29 @@ class TwilioWebSocketHandler:
     async def send_response(self, text: str, partial: bool = True):
         if not self.websocket:
             return
+
+        # Build message for Conversation Relay TTS
         msg = {
             "type": "text",
-            "token": text,
+            "token": text,              # supported in CR
+            "text": text,               # alias for compatibility
             "last": not partial,
             "interruptible": self.latest_prompt_flags["interruptible"],
-            "preemptible": self.latest_prompt_flags["preemptible"]
+            "preemptible": self.latest_prompt_flags["preemptible"],
+            "track": "agent"
         }
 
-        # Add language specification for better TTS handling
+        # Add language fields for TTS
         if hasattr(self, 'language') and self.language:
             msg["lang"] = self.language
+            msg["language"] = self.language
 
         # Log in debug mode but ALWAYS send
         if DEBUG_MODE:
-            log_debug(f"[TTS] Sending to ConversationRelay: {json.dumps(msg)}")
+            log_debug(f"[TTS] Sending to ConversationRelay: {json.dumps(msg, ensure_ascii=False)}")
 
         try:
-            message_json = json.dumps(msg)
+            message_json = json.dumps(msg, ensure_ascii=False)
             await self.websocket.send_str(message_json)
 
             if DEBUG_MODE:
