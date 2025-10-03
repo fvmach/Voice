@@ -949,18 +949,46 @@ class TwilioWebSocketHandler:
                     del self.current_partial_transcript[speaker]
 
     async def handle_websocket(self, request):
-        ws = web.WebSocketResponse()
+        # Render WebSocket compatibility - ensure proper upgrade handling
+        logger.info(f"{Fore.CYAN}[WS] WebSocket connection request from {request.remote}{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[WS] User-Agent: {request.headers.get('User-Agent', 'Unknown')}{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[WS] Origin: {request.headers.get('Origin', 'Unknown')}{Style.RESET_ALL}")
+        
+        # Create WebSocket response with Render-optimized settings
+        ws = web.WebSocketResponse(
+            heartbeat=30,  # Keep connection alive
+            compress=True,  # Enable compression for better performance
+            max_msg_size=4 * 1024 * 1024,  # 4MB max message size
+            timeout=60,  # Connection timeout
+            autoclose=True,  # Auto-close on connection issues
+        )
+        
+        # Prepare WebSocket connection
         await ws.prepare(request)
         self.websocket = ws
-        logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}\n")
+        
+        logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[WS] Protocol: {ws.protocol}, Compression: {ws.compress}{Style.RESET_ALL}\n")
 
         try:
             await self.llm_client.initialize()
+            
+            # WebSocket message loop with Render stability improvements
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
+                    logger.info(f"{Fore.GREEN}[WS] Received message: {len(msg.data)} bytes{Style.RESET_ALL}")
                     await self.route_message(msg.data)
                 elif msg.type == WSMsgType.ERROR:
                     logger.error(f"{Fore.RED}[ERR] WebSocket error: {ws.exception()}{Style.RESET_ALL}\n")
+                    break
+                elif msg.type == WSMsgType.CLOSE:
+                    logger.info(f"{Fore.YELLOW}[WS] WebSocket connection closed by client{Style.RESET_ALL}")
+                    break
+                    
+        except ConnectionResetError as e:
+            logger.error(f"{Fore.RED}[ERR] WebSocket connection reset: {e}{Style.RESET_ALL}\n")
+        except asyncio.TimeoutError as e:
+            logger.error(f"{Fore.RED}[ERR] WebSocket timeout: {e}{Style.RESET_ALL}\n")
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] WebSocket error: {e}{Style.RESET_ALL}\n")
         finally:
@@ -1256,7 +1284,13 @@ class TwilioWebSocketHandler:
             await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
 
     async def send_response(self, text: str, partial: bool = True):
+        # Validate WebSocket connection state before sending
         if not self.websocket:
+            logger.error(f"[ERR] Cannot send message - WebSocket not initialized")
+            return
+            
+        if self.websocket.closed:
+            logger.error(f"[ERR] Cannot send message - WebSocket connection is closed")
             return
 
         # Build text token message following Twilio ConversationRelay specification
@@ -1287,10 +1321,14 @@ class TwilioWebSocketHandler:
             
             logger.info(f"[TTS] Text token sent successfully: {len(message_json)} bytes")
 
+        except ConnectionResetError as e:
+            logger.error(f"[ERR] WebSocket connection reset while sending: {e}")
+        except asyncio.TimeoutError as e:
+            logger.error(f"[ERR] WebSocket send timeout: {e}")
         except Exception as e:
             logger.error(f"[ERR] Failed to send text token: {e}")
             logger.error(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
-            logger.error(f"[TTS] WebSocket state: {self.websocket.closed if self.websocket else 'None'}")
+            logger.error(f"[TTS] WebSocket state: closed={self.websocket.closed if self.websocket else 'None'}")
 
 # Global PWA WebSocket clients set for transcription streaming
 pwa_clients = set()
