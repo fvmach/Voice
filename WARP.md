@@ -9,12 +9,13 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 **Conversations Manager (API Management):**
 ```bash
 cd Conversations
-npm run dev
+node server.js
 ```
 - Full-stack web application for managing Twilio Conversations API
 - Express.js backend with React frontend using Twilio Paste design system
 - Provides CRUD operations for services, conversations, participants, messages, media, and webhooks
-- Frontend: http://localhost:3000, Backend API: http://localhost:3001
+- Local: Backend API runs on http://localhost:3002
+- Production: Accessible via reverse proxy at https://twilio-cross-channel-cx-mas-demo.onrender.com/conversations/
 
 **Main Voice Assistant Server (Conversation Relay):**
 ```bash
@@ -94,16 +95,16 @@ curl -X POST http://localhost:4000/data/clear
 
 **Start development environment:**
 ```bash
-# Terminal 1: Conversations Manager (API Management)
-cd Conversations && npm run dev
+# Terminal 1: Conversations Manager (API Management) - Port 3002
+cd Conversations && node server.js
 
-# Terminal 2: Main conversation relay server
+# Terminal 2: Main conversation relay server - Port 8080 (or PORT env var)
 python server-backup.py
 
-# Terminal 3: Analytics server (if needed)
+# Terminal 3: Analytics server (if needed) - Port 3001
 cd "Signal SP Session" && python server.py
 
-# Terminal 4: Webhook server (if testing intelligence features)
+# Terminal 4: Webhook server (if testing intelligence features) - Port 4000
 cd "Conversational Intelligence" && python server.py
 ```
 

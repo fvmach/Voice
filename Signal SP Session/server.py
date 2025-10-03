@@ -1235,25 +1235,16 @@ class TwilioWebSocketHandler:
                 else:
                     self.chat_history.append({"role": "assistant", "content": response_text})
                 
-                # Now stream the cleaned response token by token
+                # Stream response as meaningful text chunks for optimal TTS
                 if response_text.strip():
-                    log_debug(f"[STREAM] Starting to stream response: {len(response_text)} characters")
-                    words = response_text.split()
-                    log_debug(f"[STREAM] Streaming {len(words)} words")
-                    for i, word in enumerate(words):
-                        if i == 0:
-                            await self.send_response(word, partial=True)
-                            if DEBUG_MODE and i < 5:  # Log first 5 words in debug mode
-                                log_debug(f"[STREAM] Sent word {i+1}/{len(words)}: '{word}'")
-                        else:
-                            await self.send_response(f" {word}", partial=True)
-                            if DEBUG_MODE and i < 5:  # Log first 5 words in debug mode
-                                log_debug(f"[STREAM] Sent word {i+1}/{len(words)}: ' {word}'")
-                        # Small delay to simulate natural speech
-                        await asyncio.sleep(0.05)
-                    log_debug(f"[STREAM] Finished streaming all words")
+                    log_debug(f"[TTS] Streaming complete response as text token: {len(response_text)} characters")
+                    
+                    # Send the complete response as a single text token for immediate TTS conversion
+                    # This follows Twilio's recommendation to stream tokens as they become available
+                    await self.send_response(response_text, partial=True)
+                    log_debug(f"[TTS] Complete text token sent to ConversationRelay for vocalization")
                 else:
-                    log_debug(f"[STREAM] No response text to stream")
+                    log_debug(f"[TTS] No response text to stream")
             
             
             # Log agent response to voice conversation
@@ -1274,35 +1265,32 @@ class TwilioWebSocketHandler:
         if not self.websocket:
             return
 
-        # Build message for Conversation Relay TTS
+        # Build text token message following Twilio ConversationRelay specification
         msg = {
             "type": "text",
-            "token": text,              # supported in CR
-            "text": text,               # alias for compatibility
+            "token": text,
             "last": not partial,
             "interruptible": self.latest_prompt_flags["interruptible"],
-            "preemptible": self.latest_prompt_flags["preemptible"],
-            "track": "agent"
+            "preemptible": self.latest_prompt_flags["preemptible"]
         }
 
-        # Add language fields for TTS
+        # Add language code for TTS (as per Twilio docs)
         if hasattr(self, 'language') and self.language:
             msg["lang"] = self.language
-            msg["language"] = self.language
 
         # Log in debug mode but ALWAYS send
         if DEBUG_MODE:
-            log_debug(f"[TTS] Sending to ConversationRelay: {json.dumps(msg, ensure_ascii=False)}")
+            log_debug(f"[TTS] Sending text token to ConversationRelay: {json.dumps(msg, ensure_ascii=False)}")
 
         try:
             message_json = json.dumps(msg, ensure_ascii=False)
             await self.websocket.send_str(message_json)
 
             if DEBUG_MODE:
-                log_debug(f"[TTS] Successfully sent message to ConversationRelay: {len(message_json)} bytes")
+                log_debug(f"[TTS] Text token sent successfully: {len(message_json)} bytes")
 
         except Exception as e:
-            logger.error(f"[ERR] Send TTS failed: {e}")
+            logger.error(f"[ERR] Failed to send text token: {e}")
             if DEBUG_MODE:
                 log_debug(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
 
@@ -1602,6 +1590,61 @@ async def handle_dashboard_ws(request, ws_handler):
         ws_handler.dashboard_clients.discard(ws)
     return ws
 
+async def proxy_to_conversations(request):
+    """Reverse proxy to forward requests to the Conversations API server on port 3002"""
+    try:
+        # Extract the path after /conversations
+        path = request.match_info.get('path', '')
+        target_url = f"http://127.0.0.1:3002/{path}"
+        
+        # Add query parameters if present
+        if request.query_string:
+            target_url += f"?{request.query_string}"
+        
+        # Prepare headers, exclude Host header
+        headers = dict(request.headers)
+        headers.pop('Host', None)
+        
+        # Get request body
+        data = await request.read()
+        
+        # Forward the request to the Conversations server
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                request.method,
+                target_url,
+                headers=headers,
+                data=data,
+                allow_redirects=False
+            ) as resp:
+                # Read response body
+                body = await resp.read()
+                
+                # Prepare response headers
+                response_headers = dict(resp.headers)
+                # Remove headers that shouldn't be forwarded
+                for header in ['Transfer-Encoding', 'Connection', 'Content-Encoding']:
+                    response_headers.pop(header, None)
+                
+                return web.Response(
+                    status=resp.status,
+                    body=body,
+                    headers=response_headers
+                )
+                
+    except aiohttp.ClientConnectorError:
+        logger.error(f"{Fore.RED}[PROXY] Cannot connect to Conversations server on port 3002{Style.RESET_ALL}")
+        return web.json_response(
+            {"error": "Conversations service unavailable", "message": "Make sure the Conversations server is running on port 3002"},
+            status=503
+        )
+    except Exception as e:
+        logger.error(f"{Fore.RED}[PROXY] Error proxying to Conversations: {e}{Style.RESET_ALL}")
+        return web.json_response(
+            {"error": "Proxy error", "message": str(e)},
+            status=502
+        )
+
 from datetime import datetime, timedelta
 
 async def preload_transcripts_for_service(service_sid: str, ws_handler: TwilioWebSocketHandler):
@@ -1731,6 +1774,9 @@ async def main():
     app.router.add_get('/intel-events', lambda req: web.json_response(load_recent_events()))
     app.router.add_get('/conversation/{conversation_sid}/intelligence', get_conversation_intelligence)
     app.router.add_get('/test-transcripts', test_transcripts)
+    
+    # Reverse proxy routes to Conversations API server
+    app.router.add_route('*', '/conversations/{path:.*}', proxy_to_conversations)
 
 
 

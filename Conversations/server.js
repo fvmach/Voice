@@ -38,10 +38,31 @@ app.use(helmet({
 }));
 app.use(limiter);
 app.use(morgan('combined'));
+// CORS configuration
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:4000',
+  'http://localhost:4001',
+  'https://twilio-cross-channel-cx-mas-demo.onrender.com',
+  process.env.CLIENT_URL, // Additional client URL from environment
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? (process.env.CLIENT_URL || false)
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://localhost:4001'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g., mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if the origin is in our allowed list
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Log and reject unauthorized origins
+    console.warn(`CORS blocked origin: ${origin}`);
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
