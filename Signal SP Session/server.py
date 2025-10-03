@@ -1260,34 +1260,35 @@ class TwilioWebSocketHandler:
             await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
 
     async def send_response(self, text: str, partial: bool = True):
-        if not self.websocket: 
+        if not self.websocket:
             return
         msg = {
             "type": "text",
             "token": text,
             "last": not partial,
             "interruptible": self.latest_prompt_flags["interruptible"],
-            "preemptible":  self.latest_prompt_flags["preemptible"]
+            "preemptible": self.latest_prompt_flags["preemptible"]
         }
-        
+
         # Add language specification for better TTS handling
         if hasattr(self, 'language') and self.language:
             msg["lang"] = self.language
-        
+
+        # Log in debug mode but ALWAYS send
         if DEBUG_MODE:
             log_debug(f"[TTS] Sending to ConversationRelay: {json.dumps(msg)}")
-            
-            try:
-                message_json = json.dumps(msg)
-                await self.websocket.send_str(message_json)
-                
-                if DEBUG_MODE:
-                    log_debug(f"[TTS] Successfully sent message to ConversationRelay: {len(message_json)} bytes")
-                    
-            except Exception as e:
-                logger.error(f"[ERR] Send TTS failed: {e}")
-                if DEBUG_MODE:
-                    log_debug(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
+
+        try:
+            message_json = json.dumps(msg)
+            await self.websocket.send_str(message_json)
+
+            if DEBUG_MODE:
+                log_debug(f"[TTS] Successfully sent message to ConversationRelay: {len(message_json)} bytes")
+
+        except Exception as e:
+            logger.error(f"[ERR] Send TTS failed: {e}")
+            if DEBUG_MODE:
+                log_debug(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
 
 # Global PWA WebSocket clients set for transcription streaming
 pwa_clients = set()
