@@ -790,7 +790,7 @@ class ConversationConfig:
     sentence_end_patterns = ['.', '!', '?', '\n']
     partial_timeout = 1.5
     max_buffer_size = 1000
-    openai_model = os.getenv('OPENAI_MODEL')  # Must be set in environment variables
+    openai_model = os.getenv('OPENAI_MODEL', 'gpt-5-mini')  # Default to gpt-5-mini if not set
     
     def __post_init__(self):
         if not self.openai_model:
@@ -968,7 +968,7 @@ class TwilioWebSocketHandler:
         self.websocket = ws
         
         logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}")
-        logger.info(f"{Fore.CYAN}[WS] Protocol: {ws.protocol}, Compression: {ws.compress}{Style.RESET_ALL}\n")
+        logger.info(f"{Fore.CYAN}[WS] WebSocket prepared successfully{Style.RESET_ALL}\n")
 
         try:
             await self.llm_client.initialize()
