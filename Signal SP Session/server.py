@@ -1006,6 +1006,10 @@ class TwilioWebSocketHandler:
         self.conversation_sid = data.get("callSid")
         logger.info(f"{Fore.BLUE}[SYS] Conversation setup - SID: {self.conversation_sid}{Style.RESET_ALL}\n")
         self.language = 'pt-BR'
+        
+        if DEBUG_MODE:
+            log_debug(f"[SETUP] WebSocket connection established for call {self.conversation_sid}")
+            log_debug(f"[SETUP] Setup data received: {json.dumps(data, indent=2)}")
 
         # Extract customer phone number
         from_number = data.get("from", "")
@@ -1265,10 +1269,25 @@ class TwilioWebSocketHandler:
             "interruptible": self.latest_prompt_flags["interruptible"],
             "preemptible":  self.latest_prompt_flags["preemptible"]
         }
-        try:
-            await self.websocket.send_str(json.dumps(msg))
-        except Exception as e:
-            logger.error(f"[ERR] Send TTS failed: {e}")
+        
+        # Add language specification for better TTS handling
+        if hasattr(self, 'language') and self.language:
+            msg["lang"] = self.language
+        
+        if DEBUG_MODE:
+            log_debug(f"[TTS] Sending to ConversationRelay: {json.dumps(msg)}")
+            
+            try:
+                message_json = json.dumps(msg)
+                await self.websocket.send_str(message_json)
+                
+                if DEBUG_MODE:
+                    log_debug(f"[TTS] Successfully sent message to ConversationRelay: {len(message_json)} bytes")
+                    
+            except Exception as e:
+                logger.error(f"[ERR] Send TTS failed: {e}")
+                if DEBUG_MODE:
+                    log_debug(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
 
 # Global PWA WebSocket clients set for transcription streaming
 pwa_clients = set()
