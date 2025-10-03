@@ -14,7 +14,7 @@ const mediaRoutes = require('./routes/media');
 const webhookRoutes = require('./routes/webhooks');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.CONVERSATIONS_PORT || 3002;
 
 // Rate limiting
 const limiter = rateLimit({
