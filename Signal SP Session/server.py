@@ -1239,10 +1239,10 @@ class TwilioWebSocketHandler:
                 if response_text.strip():
                     log_debug(f"[TTS] Streaming complete response as text token: {len(response_text)} characters")
                     
-                    # Send the complete response as a single text token for immediate TTS conversion
-                    # This follows Twilio's recommendation to stream tokens as they become available
-                    await self.send_response(response_text, partial=True)
-                    log_debug(f"[TTS] Complete text token sent to ConversationRelay for vocalization")
+                    # Send the complete response as a single text token with last=true
+                    # This follows Twilio's recommendation for non-streaming mode
+                    await self.send_response(response_text, partial=False)
+                    log_debug(f"[TTS] Complete text token sent to ConversationRelay for vocalization with last=true")
                 else:
                     log_debug(f"[TTS] No response text to stream")
             
@@ -1250,13 +1250,7 @@ class TwilioWebSocketHandler:
             # Log agent response to voice conversation
             if self.customer_phone and self.conversations_logger and response_text:
                 self.conversations_logger.log_agent_response(self.customer_phone, response_text)
-
-            # Send final marker
-            await self.send_response("", partial=False)
             
-        except Exception as e:
-            logger.error(f"{Fore.RED}[ERR] Error processing input: {e}{Style.RESET_ALL}\n")
-            await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] Error processing input: {e}{Style.RESET_ALL}\n")
             await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
@@ -1283,16 +1277,20 @@ class TwilioWebSocketHandler:
             log_debug(f"[TTS] Sending text token to ConversationRelay: {json.dumps(msg, ensure_ascii=False)}")
 
         try:
-            message_json = json.dumps(msg, ensure_ascii=False)
+            # Use ensure_ascii=True for Render compatibility
+            message_json = json.dumps(msg, ensure_ascii=True)
+            
+            # Log message details for debugging
+            logger.info(f"[TTS] Sending WebSocket message: {message_json}")
+            
             await self.websocket.send_str(message_json)
-
-            if DEBUG_MODE:
-                log_debug(f"[TTS] Text token sent successfully: {len(message_json)} bytes")
+            
+            logger.info(f"[TTS] Text token sent successfully: {len(message_json)} bytes")
 
         except Exception as e:
             logger.error(f"[ERR] Failed to send text token: {e}")
-            if DEBUG_MODE:
-                log_debug(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
+            logger.error(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
+            logger.error(f"[TTS] WebSocket state: {self.websocket.closed if self.websocket else 'None'}")
 
 # Global PWA WebSocket clients set for transcription streaming
 pwa_clients = set()
