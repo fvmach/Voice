@@ -1776,7 +1776,17 @@ async def main():
     app.router.add_get('/test-transcripts', test_transcripts)
     
     # Reverse proxy routes to Conversations API server
-    app.router.add_route('*', '/conversations/{path:.*}', proxy_to_conversations)
+    try:
+        # Register proxy routes for specific HTTP methods to avoid conflicts
+        app.router.add_get('/conversations/{path:.*}', proxy_to_conversations)
+        app.router.add_post('/conversations/{path:.*}', proxy_to_conversations)
+        app.router.add_put('/conversations/{path:.*}', proxy_to_conversations)
+        app.router.add_delete('/conversations/{path:.*}', proxy_to_conversations)
+        app.router.add_patch('/conversations/{path:.*}', proxy_to_conversations)
+        log_debug(f"[INIT] Conversations proxy routes registered successfully")
+    except ValueError as e:
+        # Route might already be registered, log and continue
+        log_debug(f"[WARN] Conversations route registration skipped: {e}")
 
 
 
