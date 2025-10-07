@@ -968,7 +968,7 @@ class TwilioWebSocketHandler:
         self.websocket = ws
         
         logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}")
-        logger.info(f"{Fore.CYAN}[WS] WebSocket prepared successfully{Style.RESET_ALL}\n")
+        logger.info(f"{Fore.CYAN}[WS] Handler ID: {id(self)}, WebSocket prepared successfully{Style.RESET_ALL}\n")
 
         try:
             await self.llm_client.initialize()
@@ -1287,10 +1287,13 @@ class TwilioWebSocketHandler:
         # Validate WebSocket connection state before sending
         if not self.websocket:
             logger.error(f"[ERR] Cannot send message - WebSocket not initialized")
+            logger.error(f"[ERR] Handler ID: {id(self)}, Conversation SID: {getattr(self, 'conversation_sid', 'None')}")
             return
             
         if self.websocket.closed:
             logger.error(f"[ERR] Cannot send message - WebSocket connection is closed")
+            logger.error(f"[ERR] WebSocket close code: {self.websocket.close_code}, reason: {self.websocket.close_reason}")
+            logger.error(f"[ERR] Handler ID: {id(self)}, Conversation SID: {getattr(self, 'conversation_sid', 'None')}")
             return
 
         # Build text token message following Twilio ConversationRelay specification
@@ -1831,16 +1834,24 @@ async def main():
     
     # Environment-aware host and port configuration
     deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    use_ngrok = os.getenv('USE_NGROK', 'false').lower() in ['true', '1', 'yes']
+    
     if deployment_env in ['render', 'heroku', 'aws', 'gcp']:
         host = "0.0.0.0"  # Bind to all interfaces for cloud deployment
         port = int(os.getenv('PORT', 8080))
-        # Skip ngrok setup in production environments
-        public_url = None
-        logger.info(f"{Fore.BLUE}[SYS] Production environment detected: {deployment_env}{Style.RESET_ALL}")
+        
+        if use_ngrok:
+            # Enable ngrok even in production for WebSocket stability
+            logger.info(f"{Fore.BLUE}[SYS] Production environment with ngrok: {deployment_env}{Style.RESET_ALL}")
+            public_url = setup_ngrok_tunnel(port)
+        else:
+            # Direct production deployment (current problematic approach)
+            public_url = None
+            logger.info(f"{Fore.BLUE}[SYS] Production environment detected: {deployment_env}{Style.RESET_ALL}")
     else:
         host = "localhost"
         port = int(os.getenv('PORT', 8080))
-        # Setup ngrok tunnel if configured for local development
+        # Setup ngrok tunnel for local development
         public_url = setup_ngrok_tunnel(port)
     
     logger.info(f"{Fore.BLUE}[SYS] Starting Twilio WebSocket/HTTP server on {host}:{port}{Style.RESET_ALL}\n")
