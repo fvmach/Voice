@@ -67,13 +67,18 @@ pip install aiohttp aiohttp-cors aiohttp-jinja2 openai python-dotenv twilio colo
 
 **Environment variables required (create `.env` file):**
 ```
+DEPLOYMENT_ENVIRONMENT=local  # or 'railway' or 'render'
 OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4o-mini
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
+TWILIO_INTELLIGENCE_SERVICE_SID=your_intelligence_sid
 SEGMENT_SPACE_ID=your_segment_space_id  # For personalization
 SEGMENT_ACCESS_SECRET=your_segment_token
 NGROK_DOMAIN=your_ngrok_domain  # Optional
 DEBUG_MODE=false  # Set to true for verbose logging
+PORT=3001
+CONVERSATIONS_PORT=3002
 ```
 
 ### Data Management
@@ -95,18 +100,40 @@ curl -X POST http://localhost:4000/data/clear
 
 **Start development environment:**
 ```bash
+# Set environment for local development
+export DEPLOYMENT_ENVIRONMENT=local
+
 # Terminal 1: Conversations Manager (API Management) - Port 3002
 cd Conversations && node server.js
 
-# Terminal 2: Main conversation relay server - Port 8080 (or PORT env var)
-python server-backup.py
-
-# Terminal 3: Analytics server (if needed) - Port 3001
+# Terminal 2: Main conversation relay server - Port 3001 (Signal SP Session)
 cd "Signal SP Session" && python server.py
 
-# Terminal 4: Webhook server (if testing intelligence features) - Port 4000
+# Terminal 3: Webhook server (if testing intelligence features) - Port 4000
 cd "Conversational Intelligence" && python server.py
 ```
+
+### Deployment
+
+See `DEPLOYMENT.md` for full deployment guide. Quick summary:
+
+**Local Development** (Recommended for demos):
+- Best WebSocket support
+- No infrastructure costs
+- Full control over configuration
+- Use with ngrok for external access
+
+**Railway** (Recommended for Production):
+- Excellent WebSocket support
+- $5-20/month for moderate usage
+- Easy deployment with CLI
+- Custom domains available
+
+**Render** (Alternative, has limitations):
+- Free tier available
+- WebSocket timeout issues during AI processing
+- May cause TTS failures
+- Better for non-WebSocket workloads
 
 ## Architecture Overview
 

@@ -924,18 +924,31 @@ class TwilioWebSocketHandler:
         self._keepalive_task = None  # Keep-alive background task
         self._keepalive_running = False  # Keep-alive state flag
 
+    def _get_keepalive_interval(self) -> int:
+        """Get keep-alive interval based on deployment environment"""
+        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+        intervals = {
+            'local': 60,      # Local doesn't need aggressive keep-alive
+            'railway': 30,    # Railway has better WebSocket support
+            'render': 15,     # Render needs more aggressive keep-alive
+        }
+        return intervals.get(deployment_env, 30)
+
     async def _start_keepalive(self):
-        """Send keep-alive messages every 20 seconds to prevent Render timeout"""
+        """Send keep-alive messages to prevent infrastructure timeout"""
         self._keepalive_running = True
+        interval = self._get_keepalive_interval()
+        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+        
         try:
             while self._keepalive_running and self.websocket and not self.websocket.closed:
-                await asyncio.sleep(20)  # Send every 20 seconds
+                await asyncio.sleep(interval)
                 if self._keepalive_running and self.websocket and not self.websocket.closed:
                     try:
                         # Send WebSocket-level ping
                         await self.websocket.ping()
                         self.last_heartbeat = datetime.now(timezone.utc)
-                        logger.debug(f"{Fore.CYAN}[KEEPALIVE] Sent ping to maintain connection{Style.RESET_ALL}")
+                        logger.debug(f"{Fore.CYAN}[KEEPALIVE] Sent ping ({deployment_env}, interval={interval}s){Style.RESET_ALL}")
                     except Exception as e:
                         logger.warning(f"{Fore.YELLOW}[KEEPALIVE] Ping failed: {e}{Style.RESET_ALL}")
                         self.connection_health = False
@@ -989,18 +1002,41 @@ class TwilioWebSocketHandler:
                     del self.current_partial_transcript[speaker]
 
     async def handle_websocket(self, request):
-        # Render WebSocket compatibility - ensure proper upgrade handling
+        # Environment-specific WebSocket handling
+        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
         logger.info(f"{Fore.CYAN}[WS] WebSocket connection request from {request.remote}{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] User-Agent: {request.headers.get('User-Agent', 'Unknown')}{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] Origin: {request.headers.get('Origin', 'Unknown')}{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[WS] Environment: {deployment_env}{Style.RESET_ALL}")
         
-        # Create WebSocket response with Render-optimized settings
+        # Environment-specific WebSocket settings
+        ws_config = {
+            'local': {
+                'heartbeat': 60,
+                'compress': False,
+                'timeout': 120,
+            },
+            'railway': {
+                'heartbeat': 30,
+                'compress': True,
+                'timeout': 90,
+            },
+            'render': {
+                'heartbeat': 20,
+                'compress': True,
+                'timeout': 45,
+            },
+        }
+        
+        config = ws_config.get(deployment_env, ws_config['railway'])
+        
+        # Create WebSocket response with environment-optimized settings
         ws = web.WebSocketResponse(
-            heartbeat=30,  # Keep connection alive
-            compress=True,  # Enable compression for better performance
+            heartbeat=config['heartbeat'],
+            compress=config['compress'],
             max_msg_size=4 * 1024 * 1024,  # 4MB max message size
-            timeout=60,  # Connection timeout
-            autoclose=True,  # Auto-close on connection issues
+            timeout=config['timeout'],
+            autoclose=True,
         )
         
         # Prepare WebSocket connection
@@ -1015,11 +1051,12 @@ class TwilioWebSocketHandler:
         logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] Handler ID: {id(self)}, WebSocket prepared successfully{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] Connection from: {request.remote}, User-Agent: {request.headers.get('User-Agent', 'Unknown')}{Style.RESET_ALL}")
-        logger.info(f"{Fore.CYAN}[WS] Connection details: heartbeat=30s, compress=True, timeout=60s{Style.RESET_ALL}\n")
+        logger.info(f"{Fore.CYAN}[WS] Connection details: env={deployment_env}, heartbeat={config['heartbeat']}s, compress={config['compress']}, timeout={config['timeout']}s{Style.RESET_ALL}\n")
 
-        # Start keep-alive immediately to prevent Render timeout
+        # Start keep-alive immediately to prevent infrastructure timeout
         self._keepalive_task = asyncio.create_task(self._start_keepalive())
-        logger.info(f"{Fore.CYAN}[KEEPALIVE] Started keep-alive task for connection{Style.RESET_ALL}\n")
+        keepalive_interval = self._get_keepalive_interval()
+        logger.info(f"{Fore.CYAN}[KEEPALIVE] Started keep-alive task (interval={keepalive_interval}s, env={deployment_env}){Style.RESET_ALL}\n")
 
         try:
             await self.llm_client.initialize()
