@@ -1354,9 +1354,9 @@ class TwilioWebSocketHandler:
                     response_buffer.append(token)
                     token_count += 1
                     
-                    # Send ping every 2 seconds to prevent Railway timeout (aggressive keep-alive during AI processing)
+                    # Send ping every 1 second to prevent Railway timeout (ultra-aggressive keep-alive during AI processing)
                     current_time = datetime.now(timezone.utc)
-                    if (current_time - last_progress_time).total_seconds() >= 2.0:
+                    if (current_time - last_progress_time).total_seconds() >= 1.0:
                         await self._send_processing_indicator()
                         last_progress_time = current_time
                         
@@ -1542,6 +1542,7 @@ class TwilioWebSocketHandler:
     async def _send_processing_indicator(self):
         """Send WebSocket ping to keep Railway/Render connection alive during AI processing"""
         if not self.websocket or self.websocket.closed:
+            logger.warning(f"[PROG] Cannot send ping - WebSocket closed")
             return
             
         try:
@@ -1552,10 +1553,10 @@ class TwilioWebSocketHandler:
             self.last_heartbeat = datetime.now(timezone.utc)
             self.connection_health = True
             
-            log_debug(f"[PROG] Ping sent to keep WebSocket alive during AI processing")
+            logger.info(f"[PROG] Ping sent to keep WebSocket alive during AI processing")
             
         except Exception as e:
-            log_debug(f"[PROG] Failed to send ping: {e}")
+            logger.error(f"[PROG] Failed to send ping: {e}")
             self.connection_health = False
 
 # Global PWA WebSocket clients set for transcription streaming
