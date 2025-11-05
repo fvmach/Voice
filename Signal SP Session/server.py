@@ -2043,7 +2043,7 @@ async def main():
     deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
     use_ngrok = os.getenv('USE_NGROK', 'false').lower() in ['true', '1', 'yes']
     
-    if deployment_env in ['render', 'heroku', 'aws', 'gcp']:
+    if deployment_env in ['railway', 'render', 'heroku', 'aws', 'gcp']:
         host = "0.0.0.0"  # Bind to all interfaces for cloud deployment
         port = int(os.getenv('PORT', 8080))
         
