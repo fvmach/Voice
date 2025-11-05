@@ -138,3 +138,5 @@ coverage.xml
 .python-version
 
 /Users/fvieiramachado/Twilio/CX MAS/Cross-Channel AI Agents/sample-calls-debug
+# Archived backup and test files
+archived/

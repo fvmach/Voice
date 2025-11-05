@@ -921,6 +921,40 @@ class TwilioWebSocketHandler:
         self.connection_health = True  # Track connection health
         self.last_heartbeat = None  # Track last successful communication
         self.connection_retry_count = 0  # Track retry attempts
+        self._keepalive_task = None  # Keep-alive background task
+        self._keepalive_running = False  # Keep-alive state flag
+
+    async def _start_keepalive(self):
+        """Send keep-alive messages every 20 seconds to prevent Render timeout"""
+        self._keepalive_running = True
+        try:
+            while self._keepalive_running and self.websocket and not self.websocket.closed:
+                await asyncio.sleep(20)  # Send every 20 seconds
+                if self._keepalive_running and self.websocket and not self.websocket.closed:
+                    try:
+                        # Send WebSocket-level ping
+                        await self.websocket.ping()
+                        self.last_heartbeat = datetime.now(timezone.utc)
+                        logger.debug(f"{Fore.CYAN}[KEEPALIVE] Sent ping to maintain connection{Style.RESET_ALL}")
+                    except Exception as e:
+                        logger.warning(f"{Fore.YELLOW}[KEEPALIVE] Ping failed: {e}{Style.RESET_ALL}")
+                        self.connection_health = False
+                        break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._keepalive_running = False
+    
+    async def _stop_keepalive(self):
+        """Stop the keep-alive background task"""
+        self._keepalive_running = False
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            self._keepalive_task = None
 
     async def broadcast_to_dashboard(self, payload: dict):
         msg = json.dumps(payload)
@@ -983,6 +1017,10 @@ class TwilioWebSocketHandler:
         logger.info(f"{Fore.CYAN}[WS] Connection from: {request.remote}, User-Agent: {request.headers.get('User-Agent', 'Unknown')}{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] Connection details: heartbeat=30s, compress=True, timeout=60s{Style.RESET_ALL}\n")
 
+        # Start keep-alive immediately to prevent Render timeout
+        self._keepalive_task = asyncio.create_task(self._start_keepalive())
+        logger.info(f"{Fore.CYAN}[KEEPALIVE] Started keep-alive task for connection{Style.RESET_ALL}\n")
+
         try:
             await self.llm_client.initialize()
             
@@ -1005,6 +1043,8 @@ class TwilioWebSocketHandler:
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] WebSocket error: {e}{Style.RESET_ALL}\n")
         finally:
+            # Stop keep-alive task
+            await self._stop_keepalive()
             await self.llm_client.close()
             
             # Log connection duration for debugging
