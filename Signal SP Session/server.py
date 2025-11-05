@@ -926,19 +926,40 @@ class TwilioWebSocketHandler:
 
     def _get_keepalive_interval(self) -> int:
         """Get keep-alive interval based on deployment environment"""
-        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+        deployment_env = self._detect_environment()
         intervals = {
             'local': 60,      # Local doesn't need aggressive keep-alive
             'railway': 30,    # Railway has better WebSocket support
             'render': 15,     # Render needs more aggressive keep-alive
         }
         return intervals.get(deployment_env, 30)
+    
+    def _detect_environment(self) -> str:
+        """Auto-detect deployment environment from various platform indicators"""
+        # Check explicit environment variable first
+        explicit_env = os.getenv('DEPLOYMENT_ENVIRONMENT')
+        if explicit_env:
+            return explicit_env
+        
+        # Auto-detect Railway
+        if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_STATIC_URL'):
+            return 'railway'
+        
+        # Auto-detect Render
+        if os.getenv('RENDER'):
+            return 'render'
+        
+        # Auto-detect other platforms
+        if os.getenv('HEROKU_APP_NAME'):
+            return 'heroku'
+        
+        return 'local'
 
     async def _start_keepalive(self):
         """Send keep-alive messages to prevent infrastructure timeout"""
         self._keepalive_running = True
         interval = self._get_keepalive_interval()
-        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+        deployment_env = self._detect_environment()
         
         try:
             while self._keepalive_running and self.websocket and not self.websocket.closed:
@@ -1003,7 +1024,7 @@ class TwilioWebSocketHandler:
 
     async def handle_websocket(self, request):
         # Environment-specific WebSocket handling
-        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+        deployment_env = self._detect_environment()
         logger.info(f"{Fore.CYAN}[WS] WebSocket connection request from {request.remote}{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] User-Agent: {request.headers.get('User-Agent', 'Unknown')}{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[WS] Origin: {request.headers.get('Origin', 'Unknown')}{Style.RESET_ALL}")
@@ -2040,7 +2061,16 @@ async def main():
         cors.add(route)
     
     # Environment-aware host and port configuration
-    deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    # Auto-detect environment from platform indicators
+    if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_STATIC_URL'):
+        deployment_env = 'railway'
+    elif os.getenv('RENDER'):
+        deployment_env = 'render'
+    elif os.getenv('HEROKU_APP_NAME'):
+        deployment_env = 'heroku'
+    else:
+        deployment_env = os.getenv('DEPLOYMENT_ENVIRONMENT', 'local')
+    
     use_ngrok = os.getenv('USE_NGROK', 'false').lower() in ['true', '1', 'yes']
     
     if deployment_env in ['railway', 'render', 'heroku', 'aws', 'gcp']:
