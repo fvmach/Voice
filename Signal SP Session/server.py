@@ -915,6 +915,12 @@ class TwilioWebSocketHandler:
         self.customer_phone = None  # Store customer phone for banking operations
         self.live_transcription_active = False  # Track if live transcription is active
         self.current_partial_transcript = {}  # Store partial transcripts by speaker
+        
+        # WebSocket resilience features
+        self.response_buffer = []  # Buffer responses during connection issues
+        self.connection_health = True  # Track connection health
+        self.last_heartbeat = None  # Track last successful communication
+        self.connection_retry_count = 0  # Track retry attempts
 
     async def broadcast_to_dashboard(self, payload: dict):
         msg = json.dumps(payload)
@@ -966,9 +972,16 @@ class TwilioWebSocketHandler:
         # Prepare WebSocket connection
         await ws.prepare(request)
         self.websocket = ws
+        self.connection_start_time = datetime.now(timezone.utc)
+        self.connection_health = True
+        self.last_heartbeat = self.connection_start_time
+        self.connection_retry_count = 0
+        self.response_buffer = []  # Reset buffer on new connection
         
         logger.info(f"{Fore.BLUE}[SYS] New WebSocket connection established{Style.RESET_ALL}")
-        logger.info(f"{Fore.CYAN}[WS] Handler ID: {id(self)}, WebSocket prepared successfully{Style.RESET_ALL}\n")
+        logger.info(f"{Fore.CYAN}[WS] Handler ID: {id(self)}, WebSocket prepared successfully{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[WS] Connection from: {request.remote}, User-Agent: {request.headers.get('User-Agent', 'Unknown')}{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN}[WS] Connection details: heartbeat=30s, compress=True, timeout=60s{Style.RESET_ALL}\n")
 
         try:
             await self.llm_client.initialize()
@@ -993,7 +1006,18 @@ class TwilioWebSocketHandler:
             logger.error(f"{Fore.RED}[ERR] WebSocket error: {e}{Style.RESET_ALL}\n")
         finally:
             await self.llm_client.close()
-            logger.info(f"{Fore.BLUE}[SYS] WebSocket connection closed{Style.RESET_ALL}\n")
+            
+            # Log connection duration for debugging
+            if hasattr(self, 'connection_start_time'):
+                duration = datetime.now(timezone.utc) - self.connection_start_time
+                logger.info(f"{Fore.BLUE}[SYS] WebSocket connection closed after {duration.total_seconds():.1f}s{Style.RESET_ALL}")
+                
+                # Warn if connection was very short (possible stability issue)
+                if duration.total_seconds() < 60:
+                    logger.warning(f"{Fore.YELLOW}[WARN] Short-lived WebSocket connection ({duration.total_seconds():.1f}s) - consider ngrok for stability{Style.RESET_ALL}")
+            else:
+                logger.info(f"{Fore.BLUE}[SYS] WebSocket connection closed{Style.RESET_ALL}")
+                
         return ws
 
     async def route_message(self, message: str):
@@ -1210,12 +1234,19 @@ class TwilioWebSocketHandler:
                 
             else:
                 # Get AI response using standard approach
+                ai_start_time = datetime.now(timezone.utc)
                 log_debug(f"[AI] Generating AI response for: {text}")
+                logger.info(f"{Fore.CYAN}[AI] Starting AI processing at {ai_start_time.isoformat()}, WebSocket alive: {self.websocket and not self.websocket.closed}{Style.RESET_ALL}")
                 self.chat_history.append({"role": "user", "content": text})
+                
+                # Send progress indicator to keep connection alive during AI processing
+                await self._send_processing_indicator()
                 
                 # First, collect the complete response
                 response_buffer = []
                 token_count = 0
+                last_progress_time = datetime.now(timezone.utc)
+                
                 async for token in self.llm_client.get_completion_from_history(
                     history=self.chat_history,
                     language=self.language,
@@ -1224,6 +1255,13 @@ class TwilioWebSocketHandler:
                 ):
                     response_buffer.append(token)
                     token_count += 1
+                    
+                    # Send progress indicators every 3 seconds to keep connection alive
+                    current_time = datetime.now(timezone.utc)
+                    if (current_time - last_progress_time).total_seconds() >= 3.0:
+                        await self._send_processing_indicator()
+                        last_progress_time = current_time
+                        
                     if DEBUG_MODE and token_count % 10 == 0:  # Log every 10 tokens in debug mode
                         log_debug(f"[AI] Received {token_count} tokens so far")
             
@@ -1284,19 +1322,7 @@ class TwilioWebSocketHandler:
             await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
 
     async def send_response(self, text: str, partial: bool = True):
-        # Validate WebSocket connection state before sending
-        if not self.websocket:
-            logger.error(f"[ERR] Cannot send message - WebSocket not initialized")
-            logger.error(f"[ERR] Handler ID: {id(self)}, Conversation SID: {getattr(self, 'conversation_sid', 'None')}")
-            return
-            
-        if self.websocket.closed:
-            logger.error(f"[ERR] Cannot send message - WebSocket connection is closed")
-            logger.error(f"[ERR] WebSocket close code: {self.websocket.close_code}, reason: {self.websocket.close_reason}")
-            logger.error(f"[ERR] Handler ID: {id(self)}, Conversation SID: {getattr(self, 'conversation_sid', 'None')}")
-            return
-
-        # Build text token message following Twilio ConversationRelay specification
+        # Build message first
         msg = {
             "type": "text",
             "token": text,
@@ -1308,6 +1334,30 @@ class TwilioWebSocketHandler:
         # Add language code for TTS (as per Twilio docs)
         if hasattr(self, 'language') and self.language:
             msg["lang"] = self.language
+        
+        # If WebSocket connection is problematic, buffer the response
+        if not self.websocket or self.websocket.closed or not self.connection_health:
+            logger.warning(f"[BUFF] WebSocket unavailable - buffering response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            self.response_buffer.append(msg)
+            
+            # If this is the final message, try to establish connection health
+            if not partial:
+                await self._attempt_buffer_flush()
+            return
+            
+        # Test connection health before sending
+        if not await self._test_connection_health():
+            logger.warning(f"[BUFF] Connection unhealthy - buffering response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            self.response_buffer.append(msg)
+            return
+
+        # Connection is healthy, proceed with sending
+        logger.info(f"{Fore.GREEN}[TTS] Attempting to send response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        logger.info(f"{Fore.GREEN}[TTS] WebSocket state: open={not self.websocket.closed}, handler_id={id(self)}{Style.RESET_ALL}")
+        
+        # First, flush any buffered messages if connection is now healthy
+        if self.response_buffer:
+            await self._attempt_buffer_flush()
 
         # Log in debug mode but ALWAYS send
         if DEBUG_MODE:
@@ -1322,16 +1372,106 @@ class TwilioWebSocketHandler:
             
             await self.websocket.send_str(message_json)
             
+            # Update connection health on successful send
+            self.connection_health = True
+            self.last_heartbeat = datetime.now(timezone.utc)
+            self.connection_retry_count = 0
+            
             logger.info(f"[TTS] Text token sent successfully: {len(message_json)} bytes")
 
         except ConnectionResetError as e:
             logger.error(f"[ERR] WebSocket connection reset while sending: {e}")
+            self.connection_health = False
+            self.response_buffer.append(msg)  # Buffer this message
         except asyncio.TimeoutError as e:
             logger.error(f"[ERR] WebSocket send timeout: {e}")
+            self.connection_health = False
+            self.response_buffer.append(msg)  # Buffer this message
         except Exception as e:
             logger.error(f"[ERR] Failed to send text token: {e}")
             logger.error(f"[TTS] WebSocket send error: {type(e).__name__}: {str(e)}")
             logger.error(f"[TTS] WebSocket state: closed={self.websocket.closed if self.websocket else 'None'}")
+            self.connection_health = False
+            self.response_buffer.append(msg)  # Buffer this message
+    
+    async def _test_connection_health(self) -> bool:
+        """Test WebSocket connection health with ping/pong"""
+        if not self.websocket or self.websocket.closed:
+            self.connection_health = False
+            return False
+            
+        try:
+            # Test connection with a ping (shorter timeout for faster detection)
+            await asyncio.wait_for(self.websocket.ping(), timeout=0.5)
+            self.connection_health = True
+            self.last_heartbeat = datetime.now(timezone.utc)
+            return True
+        except (asyncio.TimeoutError, ConnectionError, Exception) as e:
+            logger.warning(f"[CONN] Connection health test failed: {e}")
+            self.connection_health = False
+            return False
+    
+    async def _attempt_buffer_flush(self):
+        """Attempt to flush buffered messages when connection becomes available"""
+        if not self.response_buffer:
+            return
+            
+        if not self.websocket or self.websocket.closed:
+            logger.warning(f"[BUFF] Cannot flush buffer - WebSocket unavailable ({len(self.response_buffer)} messages buffered)")
+            return
+            
+        logger.info(f"[BUFF] Attempting to flush {len(self.response_buffer)} buffered messages")
+        
+        # Test connection first
+        if not await self._test_connection_health():
+            logger.warning(f"[BUFF] Connection unhealthy - keeping {len(self.response_buffer)} messages buffered")
+            return
+            
+        # Flush buffered messages
+        messages_to_send = self.response_buffer.copy()
+        self.response_buffer.clear()
+        
+        for i, msg in enumerate(messages_to_send):
+            try:
+                message_json = json.dumps(msg, ensure_ascii=True)
+                await self.websocket.send_str(message_json)
+                logger.info(f"[BUFF] Flushed buffered message {i+1}/{len(messages_to_send)}: {msg.get('token', '')[:50]}...")
+                
+                # Small delay between messages to avoid overwhelming the connection
+                if i < len(messages_to_send) - 1:
+                    await asyncio.sleep(0.1)
+                    
+            except Exception as e:
+                logger.error(f"[BUFF] Failed to flush message {i+1}: {e}")
+                # Put remaining messages back in buffer
+                self.response_buffer.extend(messages_to_send[i:])
+                self.connection_health = False
+                break
+        
+        if not self.response_buffer:
+            logger.info(f"[BUFF] Successfully flushed all buffered messages")
+    
+    async def _send_processing_indicator(self):
+        """Send a non-vocalized processing indicator to keep WebSocket connection alive"""
+        if not self.websocket or self.websocket.closed or not self.connection_health:
+            return
+            
+        try:
+            # Send a processing indicator that won't be vocalized
+            indicator_msg = {
+                "type": "info",
+                "message": "processing",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            
+            message_json = json.dumps(indicator_msg, ensure_ascii=True)
+            await self.websocket.send_str(message_json)
+            
+            log_debug(f"[PROG] Processing indicator sent to keep connection alive")
+            
+        except Exception as e:
+            log_debug(f"[PROG] Failed to send processing indicator: {e}")
+            self.connection_health = False
 
 # Global PWA WebSocket clients set for transcription streaming
 pwa_clients = set()

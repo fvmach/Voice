@@ -124,6 +124,38 @@ class TwilioWebSocketHandler:
         self.dashboard_clients = set()
         self.language = 'pt-BR'  # default
         self._llm_initialized = False
+        self._keepalive_task = None
+        self._keepalive_running = False
+
+    async def _start_keepalive(self):
+        """Start sending keep-alive pings during AI processing"""
+        self._keepalive_running = True
+        try:
+            while self._keepalive_running and self.websocket and not self.websocket.closed:
+                # Send ping every 5 seconds to keep connection alive
+                await asyncio.sleep(5)
+                if self._keepalive_running and self.websocket and not self.websocket.closed:
+                    try:
+                        await self.websocket.ping()
+                        logger.debug(f"{Fore.CYAN}[PING] Keep-alive ping sent{Style.RESET_ALL}")
+                    except Exception as e:
+                        logger.warning(f"{Fore.YELLOW}[WARN] Keep-alive ping failed: {e}{Style.RESET_ALL}")
+                        break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._keepalive_running = False
+
+    async def _stop_keepalive(self):
+        """Stop the keep-alive task"""
+        self._keepalive_running = False
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            self._keepalive_task = None
 
     def _ensure_llm_client(self):
         """Initialize LLM client if not already done"""
@@ -174,6 +206,7 @@ class TwilioWebSocketHandler:
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] WebSocket error: {e}{Style.RESET_ALL}\n")
         finally:
+            await self._stop_keepalive()
             if self.llm_client:
                 await self.llm_client.close()
             logger.info(f"{Fore.BLUE}[SYS] WebSocket connection closed{Style.RESET_ALL}\n")
@@ -302,15 +335,25 @@ class TwilioWebSocketHandler:
             if self.llm_client is None:
                 raise RuntimeError("OpenAI client not initialized. Please check your OPENAI_API_KEY environment variable.")
 
+            # Start keep-alive pings during AI processing
+            if not self._keepalive_running:
+                self._keepalive_task = asyncio.create_task(self._start_keepalive())
+                logger.info(f"{Fore.CYAN}[PING] Started keep-alive task for AI processing{Style.RESET_ALL}\n")
+
             async for token in self.llm_client.get_completion(text, self.language):
                 await self.send_response(token, partial=True)
 
             # ✅ Send final marker
             await self.send_response("", partial=False)
 
+            # Stop keep-alive after response is complete
+            await self._stop_keepalive()
+
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] Error processing input: {e}{Style.RESET_ALL}\n")
             await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
+            # Ensure keep-alive is stopped on error
+            await self._stop_keepalive()
 
 
 

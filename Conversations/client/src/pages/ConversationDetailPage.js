@@ -104,13 +104,6 @@ const ContentRenderer = ({ content, type = null, showTypeIndicator = false }) =>
   const TypeIndicator = () => {
     if (!showTypeIndicator) return null;
     
-    const typeColors = {
-      json: 'neutral',
-      markdown: 'success', 
-      code: 'warning',
-      text: 'neutral'
-    };
-    
     const typeLabels = {
       json: 'JSON',
       markdown: 'Markdown',
@@ -119,13 +112,19 @@ const ContentRenderer = ({ content, type = null, showTypeIndicator = false }) =>
     };
     
     return (
-      <Badge 
-        variant={typeColors[contentType]} 
-        size="small" 
+      <Text 
+        fontSize="fontSize20"
+        fontWeight="fontWeightSemibold"
+        color="colorTextWeak"
         marginBottom="space20"
+        display="inline-block"
+        paddingX="space20"
+        paddingY="space10"
+        backgroundColor="colorBackgroundStrong"
+        borderRadius="borderRadius20"
       >
         {typeLabels[contentType]}
-      </Badge>
+      </Text>
     );
   };
   
@@ -420,13 +419,14 @@ const ConversationDetailPage = () => {
   
   // Fetch conversation-specific intelligence data from Signal SP Session server
   const { data: conversationIntelligenceData, isLoading: conversationIntelligenceLoading, error: conversationIntelligenceError } = useQuery(
-    ['conversationIntelligence', conversationSid],
+    ['conversationIntelligence', conversationSid, conversationLanguage],
     () => signalSpApi.getConversationIntelligence(conversationSid),
     {
       // Fetch intelligence data when viewing Intelligence tab
       enabled: selectedTab === 'intelligence' && !!conversationSid,
       retry: 1,
-      staleTime: 60000, // Cache for 60 seconds
+      staleTime: 10000, // Cache for 10 seconds (shorter to ensure fresh data per conversation)
+      cacheTime: 30000, // Keep in cache for 30 seconds after unmount
       onError: (error) => {
         console.error('Failed to fetch conversation intelligence:', error);
       }
@@ -1114,7 +1114,7 @@ const ConversationDetailPage = () => {
             <EditIcon decorative />
             Edit Conversation
           </Button>
-          <Badge variant={conversation.state === 'active' ? 'success' : 'neutral'} size="large">
+          <Badge variant={conversation.state === 'active' ? 'success' : 'warning'} size="large">
             {conversation.state}
           </Badge>
         </Flex>
@@ -2155,13 +2155,19 @@ const ConversationDetailPage = () => {
                                                'colorBorderNeutral'}
                               >
                                 <Flex vAlignContent="center" marginBottom="space10" wrap>
-                                  <Badge 
-                                    variant={message.color} 
-                                    size="small" 
+                                  <Text 
+                                    fontSize="fontSize20"
+                                    fontWeight="fontWeightBold"
+                                    color="colorText"
                                     marginRight="space20"
+                                    paddingX="space20"
+                                    paddingY="space10"
+                                    backgroundColor="colorBackgroundStrong"
+                                    borderRadius="borderRadius20"
+                                    display="inline-block"
                                   >
                                     {message.type}
-                                  </Badge>
+                                  </Text>
                                   <Text fontSize="fontSize20" color="colorTextWeak">
                                     {format(new Date(message.timestamp), 'HH:mm:ss.SSS')}
                                   </Text>
@@ -2281,7 +2287,7 @@ const ConversationDetailPage = () => {
                             >
                               <Flex vAlignContent="center" marginBottom="space10">
                                 <Badge 
-                                  variant={message.type === 'customer' ? 'success' : 'neutral'} 
+                                  variant={message.type === 'customer' ? 'success' : 'info'} 
                                   size="small" 
                                   marginRight="space20"
                                 >

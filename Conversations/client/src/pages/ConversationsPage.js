@@ -282,7 +282,7 @@ const ConversationsPage = () => {
                     </Badge>
                   </Td>
                   <Td>
-                    <Badge variant={conversation.state === 'active' ? 'success' : 'neutral'}>
+                    <Badge variant={conversation.state === 'active' ? 'success' : 'warning'}>
                       {conversation.state}
                     </Badge>
                   </Td>

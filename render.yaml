@@ -44,4 +44,8 @@ services:
         value: true
       - key: USE_OPENAI_FUNCTIONS
         value: false
+      - key: USE_NGROK
+        value: true
+      - key: NGROK_AUTHTOKEN
+        sync: false
     healthCheckPath: /health
