@@ -870,16 +870,27 @@ class LLMClient:
             )}
         ] + history
 
-        def sync_stream():
-            return self.client.chat.completions.create(
-                model=self.config.openai_model,
-                messages=messages,
-                stream=True
-            )
-
         try:
-            stream = await asyncio.to_thread(sync_stream)
-            for chunk in stream:
+            # Create stream in thread to avoid blocking event loop
+            stream = await asyncio.to_thread(
+                lambda: self.client.chat.completions.create(
+                    model=self.config.openai_model,
+                    messages=messages,
+                    stream=True
+                )
+            )
+            
+            # Iterate chunks in thread to keep event loop responsive for Railway pings
+            def get_next_chunk():
+                try:
+                    return next(stream)
+                except StopIteration:
+                    return None
+            
+            while True:
+                chunk = await asyncio.to_thread(get_next_chunk)
+                if chunk is None:
+                    break
                 content = chunk.choices[0].delta.content
                 if content:
                     yield content
