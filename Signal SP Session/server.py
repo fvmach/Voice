@@ -1375,23 +1375,13 @@ class TwilioWebSocketHandler:
         if hasattr(self, 'language') and self.language:
             msg["lang"] = self.language
         
-        # If WebSocket connection is problematic, buffer the response
-        if not self.websocket or self.websocket.closed or not self.connection_health:
-            logger.warning(f"[BUFF] WebSocket unavailable - buffering response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-            self.response_buffer.append(msg)
-            
-            # If this is the final message, try to establish connection health
-            if not partial:
-                await self._attempt_buffer_flush()
-            return
-            
-        # Test connection health before sending
-        if not await self._test_connection_health():
-            logger.warning(f"[BUFF] Connection unhealthy - buffering response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        # Quick check - if WebSocket is obviously closed, buffer the response
+        if not self.websocket or self.websocket.closed:
+            logger.warning(f"[BUFF] WebSocket closed - buffering response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
             self.response_buffer.append(msg)
             return
 
-        # Connection is healthy, proceed with sending
+        # Try to send - let the exception handler catch any real issues
         logger.info(f"{Fore.GREEN}[TTS] Attempting to send response: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         logger.info(f"{Fore.GREEN}[TTS] WebSocket state: open={not self.websocket.closed}, handler_id={id(self)}{Style.RESET_ALL}")
         
