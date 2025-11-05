@@ -1354,9 +1354,9 @@ class TwilioWebSocketHandler:
                     response_buffer.append(token)
                     token_count += 1
                     
-                    # Send progress indicators every 3 seconds to keep connection alive
+                    # Send ping every 2 seconds to prevent Railway timeout (aggressive keep-alive during AI processing)
                     current_time = datetime.now(timezone.utc)
-                    if (current_time - last_progress_time).total_seconds() >= 3.0:
+                    if (current_time - last_progress_time).total_seconds() >= 2.0:
                         await self._send_processing_indicator()
                         last_progress_time = current_time
                         
@@ -1540,25 +1540,22 @@ class TwilioWebSocketHandler:
             logger.info(f"[BUFF] Successfully flushed all buffered messages")
     
     async def _send_processing_indicator(self):
-        """Send a non-vocalized processing indicator to keep WebSocket connection alive"""
-        if not self.websocket or self.websocket.closed or not self.connection_health:
+        """Send WebSocket ping to keep Railway/Render connection alive during AI processing"""
+        if not self.websocket or self.websocket.closed:
             return
             
         try:
-            # Send a processing indicator that won't be vocalized
-            indicator_msg = {
-                "type": "info",
-                "message": "processing",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            # Send WebSocket ping frame - most reliable way to keep connection alive
+            await self.websocket.ping()
             
-            message_json = json.dumps(indicator_msg, ensure_ascii=True)
-            await self.websocket.send_str(message_json)
+            # Update last heartbeat timestamp
+            self.last_heartbeat = datetime.now(timezone.utc)
+            self.connection_health = True
             
-            log_debug(f"[PROG] Processing indicator sent to keep connection alive")
+            log_debug(f"[PROG] Ping sent to keep WebSocket alive during AI processing")
             
         except Exception as e:
-            log_debug(f"[PROG] Failed to send processing indicator: {e}")
+            log_debug(f"[PROG] Failed to send ping: {e}")
             self.connection_health = False
 
 # Global PWA WebSocket clients set for transcription streaming
