@@ -967,28 +967,18 @@ class TwilioWebSocketHandler:
         return 'local'
 
     async def _start_keepalive(self):
-        """Send keep-alive messages to prevent infrastructure timeout"""
         self._keepalive_running = True
-        interval = self._get_keepalive_interval()
-        deployment_env = self._detect_environment()
-        
         try:
             while self._keepalive_running and self.websocket and not self.websocket.closed:
-                await asyncio.sleep(interval)
-                if self._keepalive_running and self.websocket and not self.websocket.closed:
-                    try:
-                        # Send WebSocket-level ping
-                        await self.websocket.ping()
-                        self.last_heartbeat = datetime.now(timezone.utc)
-                        logger.debug(f"{Fore.CYAN}[KEEPALIVE] Sent ping ({deployment_env}, interval={interval}s){Style.RESET_ALL}")
-                    except Exception as e:
-                        logger.warning(f"{Fore.YELLOW}[KEEPALIVE] Ping failed: {e}{Style.RESET_ALL}")
-                        self.connection_health = False
-                        break
-        except asyncio.CancelledError:
-            pass
+                await asyncio.sleep(9)  # slightly < heartbeat
+                try:
+                    await self.websocket.ping()
+                    self.last_heartbeat = datetime.now(timezone.utc)
+                except Exception:
+                    break
         finally:
             self._keepalive_running = False
+
     
     async def _stop_keepalive(self):
         """Stop the keep-alive background task"""
@@ -1064,10 +1054,10 @@ class TwilioWebSocketHandler:
         
         # Create WebSocket response with environment-optimized settings
         ws = web.WebSocketResponse(
-            heartbeat=config['heartbeat'],
-            compress=config['compress'],
-            max_msg_size=4 * 1024 * 1024,  # 4MB max message size
-            timeout=config['timeout'],
+            heartbeat=10,         # <= 10s in cloud is safe
+            compress=False,       # avoid proxy buffering/coalescing
+            max_msg_size=4 * 1024 * 1024,
+            timeout=120,          # operation timeout
             autoclose=True,
         )
         
@@ -1143,25 +1133,42 @@ class TwilioWebSocketHandler:
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] Error routing message: {e}{Style.RESET_ALL}\n")
 
-    async def handle_conversation_relay_event(self, data: Dict[str, Any]):
-        event_type = data.get("event") or data.get("type")
-        if not event_type:
-            logger.warning(f"{Fore.YELLOW}[WARN] No 'event' field found in: {data}{Style.RESET_ALL}\n")
-            return
+async def handle_conversation_relay_event(self, data: Dict[str, Any]):
+    event_type = data.get("event") or data.get("type")
+    if not event_type:
+        logger.warning("No 'event' field")
+        return
 
-        match event_type:
-            case "setup":
-                await self.handle_setup(data)
-            case "prompt":
-                await self.handle_prompt(data)
-            case "interrupt":
-                await self.handle_interrupt(data)
-            case "dtmf":
-                await self.handle_dtmf(data)
-            case "info" | "debug":
-                await self.handle_info_debug(event_type, data)
-            case _:
-                logger.warning(f"{Fore.YELLOW}[WARN] Unhandled Conversation Relay event: {event_type}{Style.RESET_ALL}\n")
+    match event_type:
+        case "setup":
+            await self.handle_setup(data)
+        case "prompt":
+            await self.handle_prompt(data)
+        case "interrupt":
+            await self.handle_interrupt(data)
+        case "dtmf":
+            await self.handle_dtmf(data)
+        case "info" | "debug":
+            await self.handle_info_debug(event_type, data)
+        case "error":
+            await self.handle_relay_error(data)
+        case "close":
+            await self.handle_relay_close(data)
+        case _:
+            logger.warning(f"Unhandled Conversation Relay event: {event_type}")
+
+async def handle_relay_error(self, data: Dict[str, Any]):
+    # Twilio typically provides code/message/details
+    logger.error(f"[RELAY][ERROR] {json.dumps(data, ensure_ascii=False)}")
+    # Optional: speak a brief apology if appropriate
+    # await self.send_relay_say("Desculpe, houve um problema na chamada.", last=False)
+
+async def handle_relay_close(self, data: Dict[str, Any]):
+    reason = data.get("reason") or data.get("message") or "unknown"
+    code   = data.get("code")
+    logger.warning(f"[RELAY][CLOSE] code={code} reason={reason}")
+    # Stop keepalive immediately
+    await self._stop_keepalive()
 
     async def handle_setup(self, data: Dict[str, Any]):
         self.conversation_sid = data.get("callSid")
@@ -1209,6 +1216,13 @@ class TwilioWebSocketHandler:
 
         logger.info(f"{Fore.YELLOW}[AGENT] Active agent set to: {self.active_agent}{Style.RESET_ALL}\n")
 
+        # Immediately speak a tiny filler so the audio path is confirmed and the socket stays warm
+        try:
+            await self.send_relay_say("Oi.", last=False, interruptible=True)
+            logger.info(f"[TTS] Sent immediate keep-alive say on setup (last=false)")
+        except Exception as e:
+            logger.error(f"[TTS] Failed to send setup keep-alive say: {e}")
+
         # Initialize voice conversation in Conversations Manager
         if self.customer_phone and self.conversation_sid and self.conversations_logger:
             conversation_sid = self.conversations_logger.create_voice_conversation(
@@ -1241,7 +1255,28 @@ class TwilioWebSocketHandler:
 
         logger.info(f"{Fore.CYAN}[STT] {text}{Style.RESET_ALL}\n")
         if text.strip():
-            await self.process_complete_input(text)
+            # Start a short-lived keep-alive loop while the LLM is thinking
+            thinking = {'active': True}
+            async def _thinking_keepalive():
+                # send a single very short cue after ~1s if nothing has been spoken
+                try:
+                    await asyncio.sleep(1.0)
+                    if thinking['active'] and self.websocket and not self.websocket.closed:
+                        await self.send_relay_say("Um…", last=False, interruptible=True)
+                        logger.info("[TTS] Thinking keep-alive say sent")
+                except Exception as e:
+                    logger.warning(f"[TTS] Thinking keep-alive failed: {e}")
+
+            keepalive_task = asyncio.create_task(_thinking_keepalive())
+            try:
+                await self.process_complete_input(text, thinking_state=thinking)
+            finally:
+                thinking['active'] = False
+                keepalive_task.cancel()
+                try:
+                    await keepalive_task
+                except asyncio.CancelledError:
+                    pass
 
         await self.broadcast_to_dashboard({"type": 'prompt', "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
@@ -1261,8 +1296,12 @@ class TwilioWebSocketHandler:
         logger.info(f"{Fore.MAGENTA}[SPI] {event_type.capitalize()} event:\n{formatted}{Style.RESET_ALL}\n")
         await self.broadcast_to_dashboard({"type": event_type, "ts": datetime.now(timezone.utc).isoformat(), "data": data})
 
-    async def process_complete_input(self, text: str):
+    async def process_complete_input(self, text: str, thinking_state: dict = None):
         SUPPORTED_LANGUAGES = ["pt-BR", "es-US", "en-US"]
+        
+        # Cancel thinking keep-alive as we're about to send real content
+        if thinking_state:
+            thinking_state['active'] = False
 
         try:
             # Detect language switch
@@ -1331,9 +1370,9 @@ class TwilioWebSocketHandler:
                 words = response_text.split()
                 for i, word in enumerate(words):
                     if i == 0:
-                        await self.send_response(word, partial=True)
+                        await self.send_relay_say(word, last=False, interruptible=True)
                     else:
-                        await self.send_response(f" {word}", partial=True)
+                        await self.send_relay_say(f" {word}", last=(i == len(words) - 1), interruptible=True)
                     # Small delay to simulate natural speech
                     await asyncio.sleep(0.05)
                 
@@ -1412,12 +1451,11 @@ class TwilioWebSocketHandler:
                 
                 # Stream response as meaningful text chunks for optimal TTS
                 if response_text.strip():
-                    log_debug(f"[TTS] Streaming complete response as text token: {len(response_text)} characters")
+                    log_debug(f"[TTS] Streaming complete response using Relay native schema: {len(response_text)} characters")
                     
-                    # Send the complete response as a single text token with last=true
-                    # This follows Twilio's recommendation for non-streaming mode
-                    await self.send_response(response_text, partial=False)
-                    log_debug(f"[TTS] Complete text token sent to ConversationRelay for vocalization with last=true")
+                    # Send the complete response using response.create with last=true
+                    await self.send_relay_say(response_text, last=True, interruptible=True)
+                    log_debug(f"[TTS] Complete response sent to ConversationRelay for vocalization with last=true")
                 else:
                     log_debug(f"[TTS] No response text to stream")
             
@@ -1428,7 +1466,49 @@ class TwilioWebSocketHandler:
             
         except Exception as e:
             logger.error(f"{Fore.RED}[ERR] Error processing input: {e}{Style.RESET_ALL}\n")
-            await self.send_response("Desculpe, não consegui processar sua solicitação.", partial=False)
+            await self.send_relay_say("Desculpe, não consegui processar sua solicitação.", last=True, interruptible=True)
+
+    async def send_relay_say(self, text: str, *, last: bool, interruptible: bool = True):
+        """
+        Sends a TTS instruction using Conversation Relay's response.create schema.
+        last=True closes the current response; last=False keeps the stream open (barge-in friendly).
+        """
+        if not self.websocket or self.websocket.closed:
+            logger.warning(f"[BUFF] WebSocket closed - buffering response (relay say): '{text[:50]}...'")
+            self.response_buffer.append({
+                "__relay_buffer__": True,
+                "type": "response.create",
+                "response": {
+                    "instructions": [
+                        {"type": "say", "text": text, "language": self.language}
+                    ],
+                    "bargeIn": interruptible
+                },
+                "last": last
+            })
+            return
+
+        payload = {
+            "type": "response.create",
+            "response": {
+                "instructions": [
+                    {"type": "say", "text": text, "language": self.language}
+                ],
+                "bargeIn": interruptible
+            },
+            "last": last
+        }
+
+        try:
+            msg = json.dumps(payload, ensure_ascii=True)
+            logger.info(f"[TTS][relay] Sending response.create (last={last}, len={len(text)}): {text[:80]}...")
+            await self.websocket.send_str(msg)
+            self.connection_health = True
+            self.last_heartbeat = datetime.now(timezone.utc)
+        except Exception as e:
+            logger.error(f"[TTS][relay] Send failed: {type(e).__name__}: {e}")
+            self.connection_health = False
+            self.response_buffer.append(payload)
 
     async def send_response(self, text: str, partial: bool = True):
         # Build message first
