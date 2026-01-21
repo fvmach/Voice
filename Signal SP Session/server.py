@@ -747,17 +747,16 @@ def build_agent_context(agent_name: str, customer_profile: dict = None):
     
     return (
         f"{agent_personality}\n"
-        f"IMPORTANT: Always identify yourself correctly as {agent.name}. Never claim to be a different agent.\n"
+        f"IMPORTANT: Always start the interactions identifying yourself correctly as {agent.name}. Never claim to be a different agent.\n"
         f"Behavioral rules (critical):\n"
         f"- Never read out long lists of products or recommendations. Ask discovery questions first to narrow options.\n"
         f"- Ask ONE question at a time and wait for the customer's reply.\n"
         f"- Before a multistep task, ask: do they prefer step-by-step with confirmation at each step, or a summary of all steps? Default to step-by-step.\n"
         f"- Confirm understanding and get consent before moving to the next step.\n"
-        f"- Keep utterances concise and optimized for TTS; avoid emojis and special characters.\n"
+        f"- Keep utterances concise and optimized for TTS; avoid emojis and special characters, bullet points or using indexes for topics.\n"
         f"Use the following knowledge base:\n{agent.knowledge}"
         f"{personalization}"
         f"\nYou have access to the following tools and escalation rules: {extra_instruction}\n"
-        f"If needed, append your message with #route_to:<AgentName>."
     )
 
 
@@ -799,10 +798,14 @@ class ConversationConfig:
 import asyncio
 
 class LLMClient:
-    def __init__(self, config: ConversationConfig):
+    def __init__(self, config: ConversationConfig, tool_registry=None):
         self.config = config
+        self.tool_registry = tool_registry
+        self.use_function_calling = os.getenv('USE_FUNCTION_CALLING', 'false').lower() == 'true'
+
         logger.info(f"{Fore.CYAN}[DEBUG] About to create OpenAI() client in LLMClient{Style.RESET_ALL}")
-        
+        logger.info(f"{Fore.CYAN}[DEBUG] Function calling enabled: {self.use_function_calling}{Style.RESET_ALL}")
+
         try:
             # Create OpenAI client - httpx==0.27.2 fixes the proxies compatibility issue
             self.client = OpenAI()
@@ -818,6 +821,211 @@ class LLMClient:
 
     async def close(self):
         pass
+
+    async def get_completion_with_tools(
+        self,
+        history: list,
+        language: str,
+        agent_name: str = "Olli",
+        customer_profile: dict = None,
+        customer_phone: str = None,
+        max_tool_rounds: int = 3
+    ) -> dict:
+        """
+        Get completion with OpenAI function calling support.
+
+        Args:
+            history: Conversation history
+            language: Language code
+            agent_name: Active agent name
+            customer_profile: Customer personalization data
+            customer_phone: Customer phone for tool calls
+            max_tool_rounds: Maximum number of tool calling rounds
+
+        Returns:
+            Dict with 'content' (response text), 'tool_calls' (list), and 'route_to' (agent name if routing)
+        """
+        context = build_agent_context(agent_name, customer_profile)
+
+        # Build system message (without routing instructions since we use tools)
+        system_message = {
+            "role": "system",
+            "content": (
+                f"{context}\n\n"
+                f"You are talking to a customer through a phone call. "
+                f"Speak in {language}, but you can switch languages if needed to English and Latin American Spanish.\n"
+                f"Respond conversationally. Avoid special characters or emojis. Optimize responses for speech to text.\n"
+                f"Use the available tools when appropriate:\n"
+                f"- Use get_account_balance when customer asks about their balance or account\n"
+                f"- Use check_transfer_eligibility before transfers\n"
+                f"- Use route_to_agent when customer needs specialist help"
+            )
+        }
+
+        messages = [system_message] + history
+        tool_definitions = None
+
+        # Get tool definitions for this agent
+        if self.tool_registry:
+            tool_definitions = self.tool_registry.get_tool_definitions(agent_name)
+            logger.info(f"[LLM] Using {len(tool_definitions)} tools for agent {agent_name}")
+
+        # Tool calling loop
+        tool_round = 0
+        route_to_agent = None
+
+        while tool_round < max_tool_rounds:
+            try:
+                logger.info(f"[LLM] Tool round {tool_round + 1}/{max_tool_rounds}")
+
+                # Call OpenAI API (non-streaming for tool support)
+                response = await asyncio.to_thread(
+                    lambda: self.client.chat.completions.create(
+                        model=self.config.openai_model,
+                        messages=messages,
+                        tools=tool_definitions if tool_definitions else None,
+                        tool_choice="auto" if tool_definitions else None
+                    )
+                )
+
+                message = response.choices[0].message
+                finish_reason = response.choices[0].finish_reason
+
+                logger.info(f"[LLM] Finish reason: {finish_reason}")
+
+                # If no tool calls, return the response
+                if finish_reason == "stop" or not message.tool_calls:
+                    content = message.content or ""
+                    logger.info(f"[LLM] Final response (no tools): {content[:100]}...")
+                    return {
+                        "content": content,
+                        "tool_calls": [],
+                        "route_to": route_to_agent
+                    }
+
+                # Process tool calls
+                if message.tool_calls:
+                    logger.info(f"[LLM] Processing {len(message.tool_calls)} tool calls")
+
+                    # Add assistant message with tool calls to history
+                    messages.append({
+                        "role": "assistant",
+                        "content": message.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            }
+                            for tc in message.tool_calls
+                        ]
+                    })
+
+                    # Execute each tool call
+                    for tool_call in message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args_str = tool_call.function.arguments
+
+                        logger.info(f"[LLM] Calling tool: {function_name}")
+                        logger.debug(f"[LLM] Tool arguments: {function_args_str}")
+
+                        try:
+                            # Parse arguments
+                            function_args = json.loads(function_args_str)
+
+                            # Add customer_phone to banking tools if not present
+                            if function_name in ["get_account_balance", "check_transfer_eligibility"]:
+                                if "customer_phone" not in function_args and customer_phone:
+                                    function_args["customer_phone"] = customer_phone
+
+                            # Add current_agent to routing tools if not present
+                            if function_name == "route_to_agent":
+                                if "current_agent" not in function_args:
+                                    function_args["current_agent"] = agent_name
+
+                            # Add current_agent to suggest_agent_route if not present
+                            if function_name == "suggest_agent_route":
+                                if "current_agent" not in function_args:
+                                    function_args["current_agent"] = agent_name
+
+                            # Execute tool with agent context
+                            tool_result = await self.tool_registry.execute_tool(
+                                function_name,
+                                function_args,
+                                agent_name=agent_name
+                            )
+
+                            # Check if this was a routing call
+                            if function_name == "route_to_agent" and tool_result.get("success"):
+                                route_to_agent = tool_result.get("target_agent")
+                                logger.info(f"[LLM] Routing detected: {route_to_agent}")
+
+                            # Add tool result to messages
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": function_name,
+                                "content": json.dumps(tool_result, ensure_ascii=False)
+                            })
+
+                        except Exception as e:
+                            logger.error(f"[LLM] Error executing tool {function_name}: {e}")
+                            # Add error result
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": function_name,
+                                "content": json.dumps({
+                                    "success": False,
+                                    "error": str(e),
+                                    "message": "Tool execution failed"
+                                })
+                            })
+
+                    # Increment round counter
+                    tool_round += 1
+
+                else:
+                    # No tool calls, shouldn't reach here
+                    logger.warning("[LLM] Unexpected: finish_reason not 'stop' but no tool_calls")
+                    break
+
+            except Exception as e:
+                logger.error(f"[LLM] Error in tool calling loop: {e}")
+                import traceback
+                logger.error(f"[LLM] Traceback:\n{traceback.format_exc()}")
+                return {
+                    "content": "Desculpe, ocorreu um erro ao processar sua solicitação." if language == "pt-BR" else "Sorry, an error occurred while processing your request.",
+                    "tool_calls": [],
+                    "route_to": None
+                }
+
+        # Max rounds reached - get final response
+        logger.warning(f"[LLM] Max tool rounds ({max_tool_rounds}) reached")
+        try:
+            final_response = await asyncio.to_thread(
+                lambda: self.client.chat.completions.create(
+                    model=self.config.openai_model,
+                    messages=messages,
+                    tools=None  # No more tools
+                )
+            )
+            content = final_response.choices[0].message.content or ""
+            return {
+                "content": content,
+                "tool_calls": [],
+                "route_to": route_to_agent
+            }
+        except Exception as e:
+            logger.error(f"[LLM] Error getting final response: {e}")
+            return {
+                "content": "Desculpe, ocorreu um erro." if language == "pt-BR" else "Sorry, an error occurred.",
+                "tool_calls": [],
+                "route_to": route_to_agent
+            }
 
     async def get_completion(self, text: str, language: str, agent_name: str = "Olli", customer_profile: dict = None):
         context = build_agent_context(agent_name, customer_profile)
@@ -899,16 +1107,20 @@ class LLMClient:
             yield "Desculpe, ocorreu um erro."
 
 class TwilioWebSocketHandler:
-    def __init__(self):
+    def __init__(self, tool_registry=None):
         self.config = ConversationConfig()
-        
-        logger.info(f"{Fore.CYAN}[DEBUG] Initializing standard LLM client{Style.RESET_ALL}")
+
+        logger.info(f"{Fore.CYAN}[DEBUG] Initializing LLM client{Style.RESET_ALL}")
         logger.info(f"{Fore.CYAN}[DEBUG] OpenAI model: {self.config.openai_model}{Style.RESET_ALL}")
-        
-        # Always use standard LLM client (OpenAI Functions disabled)
-        logger.info(f"{Fore.CYAN}[DEBUG] Creating standard LLMClient instance{Style.RESET_ALL}")
-        self.llm_client = LLMClient(self.config)
-        logger.info(f"{Fore.BLUE}[SYS] Standard LLM Client initialized successfully{Style.RESET_ALL}")
+
+        # Initialize tool registry
+        self.tool_registry = tool_registry
+
+        # Initialize LLM client with tool registry
+        logger.info(f"{Fore.CYAN}[DEBUG] Creating LLMClient instance with tool support{Style.RESET_ALL}")
+        self.llm_client = LLMClient(self.config, tool_registry=tool_registry)
+        logger.info(f"{Fore.BLUE}[SYS] LLM Client initialized (function calling: {self.llm_client.use_function_calling}){Style.RESET_ALL}")
+
         self.websocket = None
         self.conversation_sid = None
         self.latest_prompt_flags = {
@@ -920,12 +1132,17 @@ class TwilioWebSocketHandler:
         self.language = 'pt-BR'  # default
         self.active_agent = "Olli"  # Default agent, will be updated in setup based on channel
         self.chat_history = []  # Stores full chat context
-        # Initialize banking tools and conversations logger (standard version only)
+        # Initialize banking tools and conversations logger
         self.banking_tools = get_banking_tools()
         self.conversations_logger = get_conversations_logger()
         self.customer_phone = None  # Store customer phone for banking operations
         self.live_transcription_active = False  # Track if live transcription is active
         self.current_partial_transcript = {}  # Store partial transcripts by speaker
+        self.personalization = None  # Customer personalization data
+
+        # Routing history tracking (prevent loops)
+        self.routing_history = []  # List of (from_agent, to_agent, timestamp) tuples
+        self.max_routing_history = 10  # Keep last 10 routing events
         
         # WebSocket resilience features
         self.response_buffer = []  # Buffer responses during connection issues
@@ -1296,22 +1513,25 @@ class TwilioWebSocketHandler:
             if self.customer_phone and self.conversations_logger:
                 self.conversations_logger.log_user_speech(self.customer_phone, text)
 
-            # Use standard banking tools approach (OpenAI Functions disabled)
+            # Check if we should use function calling or legacy pattern matching
+            use_function_calling = self.llm_client.use_function_calling and self.tool_registry
+
+            # Legacy pattern-matching approach for banking (when function calling disabled)
             banking_response = None
-            if self.banking_tools and self.customer_phone:
+            if not use_function_calling and self.banking_tools and self.customer_phone:
                 banking_response = self.banking_tools.process_user_input(text, self.customer_phone, self.language)
-                
+
                 if banking_response:
-                    logger.info(f"{Fore.GREEN}[BANK] Banking response generated{Style.RESET_ALL}")
-                    
+                    logger.info(f"{Fore.GREEN}[BANK] Banking response generated (legacy mode){Style.RESET_ALL}")
+
                     # Log banking action
                     if self.conversations_logger:
                         self.conversations_logger.log_banking_action(
-                            self.customer_phone, 
-                            "balance_check", 
+                            self.customer_phone,
+                            "balance_check",
                             {"success": True, "response_generated": True}
                         )
-                    
+
                     # Broadcast banking action to dashboard
                     await self.broadcast_to_dashboard({
                         "type": "banking-action",
@@ -1322,7 +1542,7 @@ class TwilioWebSocketHandler:
                         }
                     })
 
-            # If we have a banking response, use it; otherwise get AI response
+            # If we have a banking response from legacy mode, use it; otherwise get AI response
             if banking_response:
                 # Send banking response directly
                 response_text = banking_response
@@ -1342,73 +1562,153 @@ class TwilioWebSocketHandler:
                 self.chat_history.append({"role": "assistant", "content": response_text})
                 
             else:
-                # Get AI response using standard approach
+                # Get AI response
                 ai_start_time = datetime.now(timezone.utc)
                 log_debug(f"[AI] Generating AI response for: {text}")
                 logger.info(f"{Fore.CYAN}[AI] Starting AI processing at {ai_start_time.isoformat()}, WebSocket alive: {self.websocket and not self.websocket.closed}{Style.RESET_ALL}")
                 self.chat_history.append({"role": "user", "content": text})
-                
+
                 # Send progress indicator to keep connection alive during AI processing
                 await self._send_processing_indicator()
-                
-                # First, collect the complete response
-                response_buffer = []
-                token_count = 0
-                last_progress_time = datetime.now(timezone.utc)
-                
-                async for token in self.llm_client.get_completion_from_history(
-                    history=self.chat_history,
-                    language=self.language,
-                    agent_name=self.active_agent,
-                    customer_profile=self.personalization
-                ):
-                    response_buffer.append(token)
-                    token_count += 1
-                    
-                    # Send ping every 1 second to prevent Railway timeout (ultra-aggressive keep-alive during AI processing)
-                    current_time = datetime.now(timezone.utc)
-                    if (current_time - last_progress_time).total_seconds() >= 1.0:
-                        await self._send_processing_indicator()
-                        last_progress_time = current_time
-                        
-                    if DEBUG_MODE and token_count % 10 == 0:  # Log every 10 tokens in debug mode
-                        log_debug(f"[AI] Received {token_count} tokens so far")
-            
-                response_text = ''.join(response_buffer).strip()
-                log_debug(f"[AI] Complete response generated ({len(response_buffer)} tokens): {response_text[:100]}...")
-                
-                # Check for #route_to:<Agent> and remove it from the response
-                route_match = re.search(r"#route_to:(\w+)", response_text)
-                if route_match:
-                    requested_agent = route_match.group(1)
-                    # Remove the routing command from the response text before storing in history
-                    clean_response = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
-                    self.chat_history.append({"role": "assistant", "content": clean_response})
-                    
-                    if registry.get_agent(requested_agent):
-                        logger.info(f"{Fore.YELLOW}[ROUTE] Routing to agent: {requested_agent}{Style.RESET_ALL}")
-                        old_agent = self.active_agent
-                        self.active_agent = requested_agent
-                        logger.info(f"{Fore.GREEN}[AGENT] Active agent updated: {old_agent} -> {self.active_agent}{Style.RESET_ALL}")
-                        
-                        # Add context transfer message for the new agent
-                        transfer_context = f"[CONTEXT: Customer was transferred from {old_agent} to you ({requested_agent}). Previous conversation context is available.]"
-                        self.chat_history.append({"role": "system", "content": transfer_context})
-                        
-                        await self.broadcast_to_dashboard({
-                            "type": "agent-switch",
-                            "data": {"from": old_agent, "to": requested_agent}
-                        })
-                        
-                        # Set response_text to the clean version without routing command
-                        response_text = clean_response
-                    else:
-                        logger.warning(f"{Fore.YELLOW}[WARN] Unknown agent requested: {requested_agent}{Style.RESET_ALL}")
-                        # Still clean the response even if agent is unknown
-                        response_text = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
-                        self.chat_history.append({"role": "assistant", "content": response_text})
+
+                # Branch based on function calling mode
+                if use_function_calling:
+                    # Use OpenAI function calling (non-streaming)
+                    logger.info(f"{Fore.CYAN}[AI] Using function calling mode{Style.RESET_ALL}")
+
+                    result = await self.llm_client.get_completion_with_tools(
+                        history=self.chat_history,
+                        language=self.language,
+                        agent_name=self.active_agent,
+                        customer_profile=self.personalization,
+                        customer_phone=self.customer_phone
+                    )
+
+                    response_text = result.get("content", "")
+                    route_to = result.get("route_to")
+
+                    log_debug(f"[AI] Response generated with tools: {response_text[:100]}...")
+
+                    # Handle routing if detected from tool call
+                    if route_to:
+                        if registry.get_agent(route_to):
+                            # Check for routing loops
+                            recent_routes = [r for r in self.routing_history[-3:] if r[1] == route_to]
+                            if len(recent_routes) >= 2:
+                                logger.warning(f"{Fore.YELLOW}[ROUTE] Potential routing loop detected to {route_to}, ignoring{Style.RESET_ALL}")
+                                # Add warning to chat history
+                                self.chat_history.append({
+                                    "role": "system",
+                                    "content": f"[WARNING: Routing loop detected. Already transferred to {route_to} multiple times. Stay with current agent.]"
+                                })
+                            else:
+                                logger.info(f"{Fore.YELLOW}[ROUTE] Routing to agent (via tool): {route_to}{Style.RESET_ALL}")
+                                old_agent = self.active_agent
+                                self.active_agent = route_to
+
+                                # Track routing history
+                                self.routing_history.append((old_agent, route_to, datetime.now(timezone.utc)))
+                                # Keep only recent history
+                                if len(self.routing_history) > self.max_routing_history:
+                                    self.routing_history = self.routing_history[-self.max_routing_history:]
+
+                                logger.info(f"{Fore.GREEN}[AGENT] Active agent updated: {old_agent} -> {self.active_agent} (history: {len(self.routing_history)} routes){Style.RESET_ALL}")
+
+                                # Add context transfer message for the new agent
+                                transfer_context = f"[CONTEXT: Customer was transferred from {old_agent} to you ({route_to}). Previous conversation context is available.]"
+                                self.chat_history.append({"role": "system", "content": transfer_context})
+
+                                await self.broadcast_to_dashboard({
+                                    "type": "agent-switch",
+                                    "data": {"from": old_agent, "to": route_to, "routing_count": len(self.routing_history)}
+                                })
+                        else:
+                            logger.warning(f"{Fore.YELLOW}[WARN] Unknown agent requested via tool: {route_to}{Style.RESET_ALL}")
+
+                    # Update chat history with response (already done in tool calling loop)
+                    # Just ensure response_text is set
+
                 else:
-                    self.chat_history.append({"role": "assistant", "content": response_text})
+                    # Use legacy streaming approach
+                    logger.info(f"{Fore.CYAN}[AI] Using streaming mode (legacy){Style.RESET_ALL}")
+
+                    # First, collect the complete response
+                    response_buffer = []
+                    token_count = 0
+                    last_progress_time = datetime.now(timezone.utc)
+
+                    async for token in self.llm_client.get_completion_from_history(
+                        history=self.chat_history,
+                        language=self.language,
+                        agent_name=self.active_agent,
+                        customer_profile=self.personalization
+                    ):
+                        response_buffer.append(token)
+                        token_count += 1
+
+                        # Send ping every 1 second to prevent Railway timeout
+                        current_time = datetime.now(timezone.utc)
+                        if (current_time - last_progress_time).total_seconds() >= 1.0:
+                            await self._send_processing_indicator()
+                            last_progress_time = current_time
+
+                        if DEBUG_MODE and token_count % 10 == 0:
+                            log_debug(f"[AI] Received {token_count} tokens so far")
+
+                    response_text = ''.join(response_buffer).strip()
+                    log_debug(f"[AI] Complete response generated ({len(response_buffer)} tokens): {response_text[:100]}...")
+
+                    # Check for #route_to:<Agent> and remove it from the response
+                    route_match = re.search(r"#route_to:(\w+)", response_text)
+                    if route_match:
+                        requested_agent = route_match.group(1)
+                        # Remove the routing command from the response text before storing in history
+                        clean_response = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
+                        self.chat_history.append({"role": "assistant", "content": clean_response})
+
+                        if registry.get_agent(requested_agent):
+                            # Check for routing loops
+                            recent_routes = [r for r in self.routing_history[-3:] if r[1] == requested_agent]
+                            if len(recent_routes) >= 2:
+                                logger.warning(f"{Fore.YELLOW}[ROUTE] Potential routing loop detected to {requested_agent}, ignoring{Style.RESET_ALL}")
+                                # Add warning to chat history
+                                self.chat_history.append({
+                                    "role": "system",
+                                    "content": f"[WARNING: Routing loop detected. Already transferred to {requested_agent} multiple times. Stay with current agent.]"
+                                })
+                                # Set response_text to the clean version without routing command
+                                response_text = clean_response
+                            else:
+                                logger.info(f"{Fore.YELLOW}[ROUTE] Routing to agent (via text): {requested_agent}{Style.RESET_ALL}")
+                                old_agent = self.active_agent
+                                self.active_agent = requested_agent
+
+                                # Track routing history
+                                self.routing_history.append((old_agent, requested_agent, datetime.now(timezone.utc)))
+                                # Keep only recent history
+                                if len(self.routing_history) > self.max_routing_history:
+                                    self.routing_history = self.routing_history[-self.max_routing_history:]
+
+                                logger.info(f"{Fore.GREEN}[AGENT] Active agent updated: {old_agent} -> {self.active_agent} (history: {len(self.routing_history)} routes){Style.RESET_ALL}")
+
+                                # Add context transfer message for the new agent
+                                transfer_context = f"[CONTEXT: Customer was transferred from {old_agent} to you ({requested_agent}). Previous conversation context is available.]"
+                                self.chat_history.append({"role": "system", "content": transfer_context})
+
+                                await self.broadcast_to_dashboard({
+                                    "type": "agent-switch",
+                                    "data": {"from": old_agent, "to": requested_agent, "routing_count": len(self.routing_history)}
+                                })
+
+                                # Set response_text to the clean version without routing command
+                                response_text = clean_response
+                        else:
+                            logger.warning(f"{Fore.YELLOW}[WARN] Unknown agent requested: {requested_agent}{Style.RESET_ALL}")
+                            # Still clean the response even if agent is unknown
+                            response_text = re.sub(r"\s*#route_to:\w+\s*", "", response_text).strip()
+                            self.chat_history.append({"role": "assistant", "content": response_text})
+                    else:
+                        self.chat_history.append({"role": "assistant", "content": response_text})
                 
                 # Stream response as meaningful text chunks for optimal TTS
                 if response_text.strip():
@@ -2012,7 +2312,23 @@ def setup_ngrok_tunnel(port: int):
         return None
 
 async def main():
-    ws_handler = TwilioWebSocketHandler()
+    # Initialize tool registry and register tools
+    from tools.tool_registry import get_tool_registry
+    from tools.banking_tools import register_banking_tools
+    from tools.routing_tools import register_routing_tools
+
+    tool_registry = get_tool_registry()
+
+    # Register banking tools (available to all agents)
+    register_banking_tools(tool_registry)
+
+    # Register routing tools (available to all agents)
+    register_routing_tools(tool_registry)
+
+    logger.info(f"{Fore.GREEN}[INIT] Tool registry initialized with {len(tool_registry.list_tools())} tools{Style.RESET_ALL}")
+
+    # Create WebSocket handler with tool registry
+    ws_handler = TwilioWebSocketHandler(tool_registry=tool_registry)
     app = web.Application()
     
     # Setup Jinja2 templates

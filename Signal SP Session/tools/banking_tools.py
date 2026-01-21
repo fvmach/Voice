@@ -150,3 +150,182 @@ banking_tools = BankingTools()
 def get_banking_tools() -> BankingTools:
     """Get the banking tools instance"""
     return banking_tools
+
+
+# ============================================================================
+# OpenAI Function Calling Support
+# ============================================================================
+
+def get_account_balance(customer_phone: str) -> dict:
+    """
+    Get the customer's account balance, credit debt, and loyalty points.
+
+    This function is called by the AI when a customer asks about their account balance.
+
+    Args:
+        customer_phone: Customer phone number or identifier
+
+    Returns:
+        Dict with balance information
+    """
+    logger.info(f"[BANK TOOL] get_account_balance called for {customer_phone}")
+
+    result = banking_tools.get_banking_data(customer_phone)
+
+    if not result.get("success"):
+        return {
+            "success": False,
+            "error": result.get("error", "unknown"),
+            "message": "Could not retrieve account information"
+        }
+
+    data = result.get("data", {})
+    return {
+        "success": True,
+        "balance": data.get("balance", 0),
+        "credit_debt": data.get("creditDebt", 0),
+        "loyalty_points": data.get("loyaltyPoints", 0),
+        "currency": "BRL"
+    }
+
+
+def check_transfer_eligibility(customer_phone: str, amount: float, destination: str) -> dict:
+    """
+    Check if a customer can make a transfer.
+
+    This function validates transfer parameters and checks account balance.
+
+    Args:
+        customer_phone: Customer phone number or identifier
+        amount: Amount to transfer (in BRL)
+        destination: Destination account (PIX key or account number)
+
+    Returns:
+        Dict with eligibility status
+    """
+    logger.info(f"[BANK TOOL] check_transfer_eligibility called: {amount} BRL to {destination}")
+
+    # Get current balance
+    balance_result = get_account_balance(customer_phone)
+
+    if not balance_result.get("success"):
+        return {
+            "success": False,
+            "eligible": False,
+            "reason": "Could not verify account balance"
+        }
+
+    balance = balance_result.get("balance", 0)
+
+    # Check if sufficient funds
+    if amount > balance:
+        return {
+            "success": True,
+            "eligible": False,
+            "reason": f"Insufficient funds. Balance: R$ {balance:,.2f}, Requested: R$ {amount:,.2f}",
+            "balance": balance,
+            "requested_amount": amount
+        }
+
+    # Validate amount
+    if amount <= 0:
+        return {
+            "success": True,
+            "eligible": False,
+            "reason": "Transfer amount must be greater than zero"
+        }
+
+    # Validate destination
+    if not destination or len(destination.strip()) == 0:
+        return {
+            "success": True,
+            "eligible": False,
+            "reason": "Destination account is required"
+        }
+
+    return {
+        "success": True,
+        "eligible": True,
+        "reason": "Transfer is eligible",
+        "balance": balance,
+        "requested_amount": amount,
+        "destination": destination
+    }
+
+
+# OpenAI Function Definitions
+BANKING_FUNCTION_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_account_balance",
+            "description": "Get the customer's current account balance, credit card debt, and loyalty points. Use this when the customer asks about their balance, money, funds, or account status.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_phone": {
+                        "type": "string",
+                        "description": "The customer's phone number or identifier"
+                    }
+                },
+                "required": ["customer_phone"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_transfer_eligibility",
+            "description": "Check if a customer can make a transfer by validating the amount and checking account balance. Use this before initiating any transfer or PIX payment.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_phone": {
+                        "type": "string",
+                        "description": "The customer's phone number or identifier"
+                    },
+                    "amount": {
+                        "type": "number",
+                        "description": "The amount to transfer in BRL (Brazilian Reais)"
+                    },
+                    "destination": {
+                        "type": "string",
+                        "description": "The destination PIX key or account number"
+                    }
+                },
+                "required": ["customer_phone", "amount", "destination"]
+            }
+        }
+    }
+]
+
+
+def register_banking_tools(registry) -> None:
+    """
+    Register banking tools with the tool registry.
+
+    Args:
+        registry: ToolRegistry instance
+    """
+    from tools.tool_registry import ToolRegistry
+
+    if not isinstance(registry, ToolRegistry):
+        raise TypeError("registry must be a ToolRegistry instance")
+
+    # Register get_account_balance
+    registry.register_tool(
+        name="get_account_balance",
+        definition=BANKING_FUNCTION_DEFINITIONS[0],
+        handler=get_account_balance,
+        agents=None  # Available to all agents
+    )
+
+    # Register check_transfer_eligibility
+    registry.register_tool(
+        name="check_transfer_eligibility",
+        definition=BANKING_FUNCTION_DEFINITIONS[1],
+        handler=check_transfer_eligibility,
+        agents=None  # Available to all agents
+    )
+
+    logger.info("[BANK] Banking tools registered with tool registry")
